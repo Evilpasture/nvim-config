@@ -20,6 +20,7 @@ opt.updatetime = 250 -- Fast update for diagnostic hover
 
 opt.mouse = 'a'
 opt.clipboard = "unnamedplus"
+opt.mousemoveevent = true -- Enable mouse hover events
 opt.ignorecase = true
 opt.smartcase = true
 
@@ -199,14 +200,32 @@ require("lazy").setup({
 
             -- ==========================================
 
-            -- Auto-Diagnostic Popup Logic
+            -- Smart Auto-Hover Logic
             vim.api.nvim_create_autocmd("CursorHold", {
                 callback = function()
+                    -- 1. If we're in Insert mode or a floating window is already open, stop.
+                    if vim.api.nvim_get_mode().mode ~= 'n' then return end
+
                     for _, winid in pairs(vim.api.nvim_tabpage_list_wins(0)) do
-                        local config = vim.api.nvim_win_get_config(winid)
-                        if config.zindex and config.zindex > 0 then return end
+                        local conf = vim.api.nvim_win_get_config(winid)
+                        if conf.relative ~= "" then return end
                     end
-                    pcall(vim.diagnostic.open_float, nil, { focusable = false })
+
+                    -- 2. Try to show Diagnostics.
+                    -- In Neovim, open_float returns the window ID if it opens one.
+                    local diag_winid, _ = vim.diagnostic.open_float(nil, {
+                        focusable = false,
+                        scope = "cursor",
+                        border = "rounded"
+                    })
+
+                    -- 3. If NO diagnostic window was opened, trigger LSP Hover (Shift+K)
+                    if not diag_winid then
+                        pcall(vim.lsp.buf.hover, {
+                            focusable = false,
+                            border = "rounded"
+                        })
+                    end
                 end
             })
         end
