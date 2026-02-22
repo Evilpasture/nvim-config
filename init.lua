@@ -3,33 +3,27 @@
 -- ==========================================================================
 local opt = vim.opt
 
--- Line numbers
+-- Defensive Wrapper for OS detection
+local is_windows = vim.fn.has("win32") == 1
+
 opt.number = true
 opt.relativenumber = true
-
--- Indentation
 opt.shiftwidth = 4
 opt.tabstop = 4
 opt.expandtab = true
 opt.smartindent = true
-
--- UI & Colors
 opt.termguicolors = true
 opt.cursorline = true
 opt.signcolumn = "yes"
 opt.scrolloff = 10
-opt.updatetime = 250 -- FAST UPDATE: This controls how quickly the error popup appears
+opt.updatetime = 250 -- Fast update for diagnostic hover
 
--- Clipboard & Mouse
 opt.mouse = 'a'
 opt.clipboard = "unnamedplus"
-
--- Search
 opt.ignorecase = true
 opt.smartcase = true
 
--- Windows Specific
-if vim.fn.has("win32") == 1 then
+if is_windows then
     opt.shell = "powershell.exe"
 end
 
@@ -59,20 +53,18 @@ keymap.set('i', '<C-v>', '<C-r>+', { desc = 'Paste in Insert Mode' })
 -- Window Navigation
 keymap.set('n', '<leader>v', ':vsplit<CR>', { desc = 'Vertical Split' })
 keymap.set('n', '<leader>h', ':split<CR>', { desc = 'Horizontal Split' })
-keymap.set('n', '<C-h>', '<C-w>h', { desc = 'Left Window' })
-keymap.set('n', '<C-l>', '<C-w>l', { desc = 'Right Window' })
-keymap.set('n', '<C-j>', '<C-w>j', { desc = 'Bottom Window' })
-keymap.set('n', '<C-k>', '<C-w>k', { desc = 'Top Window' })
+keymap.set('n', '<C-h>', '<C-w>h')
+keymap.set('n', '<C-l>', '<C-w>l')
+keymap.set('n', '<C-j>', '<C-w>j')
+keymap.set('n', '<C-k>', '<C-w>k')
 keymap.set('n', '<leader>cx', ':close<CR>', { desc = 'Close Pane' })
 
--- Diagnostic Navigation (Jump between errors)
+-- Diagnostic Navigation
 keymap.set('n', '[d', vim.diagnostic.goto_prev, { desc = 'Prev Diagnostic' })
 keymap.set('n', ']d', vim.diagnostic.goto_next, { desc = 'Next Diagnostic' })
 
--- Git Keymaps (Fugitive)
+-- Git Keymaps
 keymap.set('n', '<leader>gs', vim.cmd.Git, { desc = 'Git Status' })
-keymap.set('n', '<leader>gp', ':Git push<CR>', { desc = 'Git Push' })
-keymap.set('n', '<leader>gl', ':Telescope git_commits<CR>', { desc = 'Git Log (Telescope)' })
 
 -- ==========================================================================
 -- BOOTSTRAP LAZY.NVIM
@@ -89,7 +81,20 @@ vim.opt.rtp:prepend(lazypath)
 -- ==========================================================================
 require("lazy").setup({
 
-    -- 1. LSP & Mason (Heavily Guarded)
+    -- NEW: lazydev.nvim (Solves the "vim" global issue perfectly)
+    {
+        "folke/lazydev.nvim",
+        ft = "lua", -- only load on lua files
+        opts = {
+            library = {
+                -- Load luvit types when the `vim.uv` word is found
+                { path = "luvit-meta/library", words = { "vim%.uv" } },
+            },
+        },
+    },
+    { "Bilal2453/luvit-meta", lazy = true }, -- optional `vim.uv` types
+
+    -- 1. LSP & Mason
     {
         "neovim/nvim-lspconfig",
         dependencies = {
@@ -98,85 +103,99 @@ require("lazy").setup({
             "hrsh7th/cmp-nvim-lsp",
         },
         config = function()
-            -- Protected Call for Mason
-            local mason_status, mason = pcall(require, "mason")
-            if not mason_status then return end
+            local ok_mason, mason = pcall(require, "mason")
+            local ok_mason_lsp, mason_lsp = pcall(require, "mason-lspconfig")
+            local ok_cmp_lsp, cmp_nvim_lsp = pcall(require, "cmp_nvim_lsp")
+
+            if not (ok_mason and ok_mason_lsp) then return end
+
+            -- 1. Mason handles DOWNLOADING the servers
             mason.setup()
-
-            -- Protected Call for Mason-LSPConfig
-            local mason_lsp_status, mason_lsp = pcall(require, "mason-lspconfig")
-            if not mason_lsp_status then return end
-
             mason_lsp.setup({
-                ensure_installed = { "clangd", "lua_ls" },
+                ensure_installed = { "clangd", "lua_ls", "basedpyright" },
                 automatic_installation = true,
             })
 
-            -- Protected Call for LSPConfig
-            local lspconfig_status, lspconfig = pcall(require, "lspconfig")
-            if not lspconfig_status then return end
+            -- 2. Shared Capabilities (for nvim-cmp autocompletion)
+            local capabilities = ok_cmp_lsp and cmp_nvim_lsp.default_capabilities() or {}
 
-            -- Protected Call for CMP Capabilities
-            local cmp_lsp_status, cmp_nvim_lsp = pcall(require, "cmp_nvim_lsp")
-            local capabilities = {}
-            if cmp_lsp_status then
-                capabilities = cmp_nvim_lsp.default_capabilities()
-            end
+            -- 3. Native Neovim Keymaps (Replaces on_attach)
+            -- This runs automatically whenever ANY language server attaches to a buffer
+            vim.api.nvim_create_autocmd('LspAttach', {
+                desc = 'LSP Actions',
+                callback = function(event)
+                    local opts = { buffer = event.buf, silent = true }
+                    vim.keymap.set('n', 'gd', vim.lsp.buf.definition, opts)
+                    vim.keymap.set('n', '<leader>rn', vim.lsp.buf.rename, opts)
+                    vim.keymap.set('n', '<leader>ca', vim.lsp.buf.code_action, opts)
 
-            local on_attach = function(client, bufnr)
-                local opts = { buffer = bufnr, silent = true }
-                vim.keymap.set('n', 'gd', vim.lsp.buf.definition, opts)
-                vim.keymap.set('n', 'K', vim.lsp.buf.hover, opts)
-                vim.keymap.set('n', '<leader>rn', vim.lsp.buf.rename, opts)
-                vim.keymap.set('n', '<leader>ca', vim.lsp.buf.code_action, opts)
-            end
-
-            -- Setup Handlers safely
-            if mason_lsp.setup_handlers then
-                mason_lsp.setup_handlers({
-                    function(server_name)
-                        lspconfig[server_name].setup({
-                            capabilities = capabilities,
-                            on_attach = on_attach,
-                        })
-                    end,
-                    ["clangd"] = function()
-                        lspconfig.clangd.setup({
-                            capabilities = capabilities,
-                            on_attach = on_attach,
-                            cmd = { "clangd", "--background-index", "--clang-tidy" }
-                        })
-                    end,
-                })
-            end
-
-            -- =================================================================
-            -- DIAGNOSTIC CONFIG (Show errors automatically)
-            -- =================================================================
-            vim.diagnostic.config({
-                virtual_text = {
-                    prefix = '●', -- Could be '■', '▎', 'x'
-                },
-                signs = true,
-                underline = true,
-                update_in_insert = false,
-                severity_sort = true,
-                float = {
-                    border = 'rounded',
-                    source = 'always',
-                    header = '',
-                    prefix = '',
-                },
+                    -- Balanced K Hover logic
+                    vim.keymap.set('n', 'K', function()
+                        local winid = vim.diagnostic.open_float(nil, { focusable = false, scope = "cursor" })
+                        if not winid then vim.lsp.buf.hover() end
+                    end, opts)
+                end,
             })
 
-            -- MAGIC: Show diagnostic popup automatically on hover
-            vim.cmd([[
-            autocmd CursorHold * lua vim.diagnostic.open_float(nil, { focusable = false })
-            ]])
+            -- ==========================================
+            -- 4. NATIVE SERVER CONFIGURATION (Neovim 0.11+)
+            -- ==========================================
+
+            -- Clangd
+            vim.lsp.config('clangd', { capabilities = capabilities })
+            vim.lsp.enable('clangd')
+
+            -- Lua
+            vim.lsp.config('lua_ls', {
+                capabilities = capabilities,
+                settings = {
+                    Lua = {
+                        completion = { callSnippet = "Replace" },
+                        diagnostics = {
+                            disable = { "missing-fields" },
+                            globals = { "vim" }, -- <--- ADD THIS LINE
+                        },
+                        -- Optional but highly recommended:
+                        -- Tells lua_ls where the rest of Neovim's source code is
+                        workspace = {
+                            library = vim.api.nvim_get_runtime_file("", true),
+                            checkThirdParty = false,
+                        },
+                    },
+                },
+            })
+            vim.lsp.enable('lua_ls')
+
+            -- Python (Basedpyright)
+            vim.lsp.config('basedpyright', {
+                capabilities = capabilities,
+                settings = {
+                    basedpyright = {
+                        analysis = {
+                            autoSearchPaths = true,
+                            diagnosticMode = "openFilesOnly",
+                            typeCheckingMode = "basic",
+                        },
+                    },
+                },
+            })
+            vim.lsp.enable('basedpyright')
+
+            -- ==========================================
+
+            -- Auto-Diagnostic Popup Logic
+            vim.api.nvim_create_autocmd("CursorHold", {
+                callback = function()
+                    for _, winid in pairs(vim.api.nvim_tabpage_list_wins(0)) do
+                        local config = vim.api.nvim_win_get_config(winid)
+                        if config.zindex and config.zindex > 0 then return end
+                    end
+                    pcall(vim.diagnostic.open_float, nil, { focusable = false })
+                end
+            })
         end
     },
-
-    -- 2. Autocompletion (Guarded)
+    -- 2. Autocompletion (Defensive)
     {
         "hrsh7th/nvim-cmp",
         dependencies = {
@@ -189,15 +208,16 @@ require("lazy").setup({
             "onsails/lspkind.nvim",
         },
         config = function()
-            local cmp_status, cmp = pcall(require, "cmp")
-            if not cmp_status then return end
+            local ok_cmp, cmp = pcall(require, "cmp")
+            if not ok_cmp then return end
 
-            local luasnip_status, luasnip = pcall(require, "luasnip")
-            if not luasnip_status then return end
+            local ok_luasnip, luasnip = pcall(require, "luasnip")
+            if not ok_luasnip then return end
 
-            local lspkind_status, lspkind = pcall(require, "lspkind")
+            local ok_lspkind, lspkind = pcall(require, "lspkind")
 
-            require('luasnip.loaders.from_vscode').lazy_load()
+            -- Safe snippet loading
+            pcall(function() require('luasnip.loaders.from_vscode').lazy_load() end)
 
             cmp.setup({
                 snippet = { expand = function(args) luasnip.lsp_expand(args.body) end },
@@ -222,7 +242,7 @@ require("lazy").setup({
                     { name = 'buffer' },
                 }),
                 formatting = {
-                    format = lspkind_status and lspkind.cmp_format({
+                    format = ok_lspkind and lspkind.cmp_format({
                         mode = 'symbol_text',
                         maxwidth = 50,
                         ellipsis_char = '...',
@@ -232,29 +252,35 @@ require("lazy").setup({
         end
     },
 
-    -- 3. Formatting
+    -- 3. Formatting (Defensive)
     {
         'stevearc/conform.nvim',
         event = { "BufWritePre" },
         cmd = { "ConformInfo" },
-        opts = {
-            formatters_by_ft = {
-                lua = { "stylua" },
-                c = { "clang-format" },
-                cpp = { "clang-format" },
-                javascript = { "prettier" },
-            },
-            format_on_save = { timeout_ms = 500, lsp_fallback = true },
-        },
+        config = function()
+            local ok, conform = pcall(require, "conform")
+            if not ok then return end
+
+            conform.setup({
+                formatters_by_ft = {
+                    lua = { "stylua" },
+                    c = { "clang-format" },
+                    cpp = { "clang-format" },
+                    python = { "black" }, -- Python Formatter
+                    javascript = { "prettier" },
+                },
+                format_on_save = { timeout_ms = 500, lsp_fallback = true },
+            })
+        end
     },
 
-    -- 4. Syntax Highlighting (Guarded)
+    -- 4. Syntax Highlighting (Defensive)
     {
         "nvim-treesitter/nvim-treesitter",
         build = ":TSUpdate",
         config = function()
-            local status, configs = pcall(require, "nvim-treesitter.configs")
-            if not status then return end
+            local ok, configs = pcall(require, "nvim-treesitter.configs")
+            if not ok then return end
 
             configs.setup({
                 ensure_installed = { "c", "cpp", "lua", "vim", "vimdoc", "javascript", "python" },
@@ -268,43 +294,86 @@ require("lazy").setup({
     {
         'windwp/nvim-autopairs',
         event = "InsertEnter",
-        opts = {}
+        config = function()
+            local ok, npairs = pcall(require, "nvim-autopairs")
+            if ok then npairs.setup({}) end
+        end
     },
 
     -- 6. Git Integration
-    { "lewis6991/gitsigns.nvim",   config = true },
+    {
+        "lewis6991/gitsigns.nvim",
+        config = function()
+            local ok, gs = pcall(require, "gitsigns")
+            if ok then gs.setup() end
+        end
+    },
     { "tpope/vim-fugitive" },
 
     -- 7. UI & Theme
-    { "catppuccin/nvim",           name = "catppuccin", priority = 1000 },
-    { "nvchad/nvim-colorizer.lua", config = true },
+    {
+        "catppuccin/nvim",
+        name = "catppuccin",
+        priority = 1000,
+        config = function()
+            -- Defensive: check if catppuccin loads, then apply
+            local ok = pcall(require, "catppuccin")
+            if ok then
+                vim.cmd.colorscheme "catppuccin"
+            end
+        end
+    },
+    {
+        "nvchad/nvim-colorizer.lua",
+        config = function()
+            local ok, colorizer = pcall(require, "colorizer")
+            if ok then colorizer.setup() end
+        end
+    },
     {
         'nvim-lualine/lualine.nvim',
         dependencies = { 'nvim-tree/nvim-web-devicons' },
         config = function()
-            local status, lualine = pcall(require, 'lualine')
-            if status then lualine.setup({ options = { theme = 'catppuccin' } }) end
+            local ok, lualine = pcall(require, 'lualine')
+            if ok then
+                lualine.setup({ options = { theme = 'catppuccin' } })
+            end
         end
     },
     {
         "lukas-reineke/indent-blankline.nvim",
         main = "ibl",
-        opts = {},
+        config = function()
+            local ok, ibl = pcall(require, "ibl")
+            if ok then ibl.setup() end
+        end
     },
-    { "folke/which-key.nvim", event = "VeryLazy", opts = {} },
+    {
+        "folke/which-key.nvim",
+        event = "VeryLazy",
+        config = function()
+            local ok, wk = pcall(require, "which-key")
+            if ok then wk.setup() end
+        end
+    },
 
     -- 8. Navigation
     {
         'nvim-telescope/telescope.nvim',
         dependencies = { 'nvim-lua/plenary.nvim' },
         branch = '0.1.x',
-        opts = {
-            defaults = {
-                file_ignore_patterns = { "node_modules", ".git" },
-                layout_strategy = 'horizontal',
-                layout_config = { width = 0.9, height = 0.9 },
-            }
-        },
+        config = function()
+            local ok, telescope = pcall(require, "telescope")
+            if not ok then return end
+
+            telescope.setup({
+                defaults = {
+                    file_ignore_patterns = { "node_modules", ".git" },
+                    layout_strategy = 'horizontal',
+                    layout_config = { width = 0.9, height = 0.9 },
+                }
+            })
+        end,
         keys = {
             { '<leader>ff', ':Telescope find_files<CR>',  desc = 'Find File' },
             { '<leader>lg', ':Telescope live_grep<CR>',   desc = 'Search Text' },
@@ -314,13 +383,21 @@ require("lazy").setup({
     {
         'stevearc/oil.nvim',
         dependencies = { "nvim-tree/nvim-web-devicons" },
-        opts = { view_options = { show_hidden = true } },
+        config = function()
+            local ok, oil = pcall(require, "oil")
+            if ok then oil.setup({ view_options = { show_hidden = true } }) end
+        end,
         keys = { { '<leader>e', ':Oil<CR>', desc = 'File Explorer' } }
     },
     {
         'stevearc/aerial.nvim',
-        opts = { layout = { max_width = { 40, 0.2 }, min_width = 20 } },
         dependencies = { "nvim-treesitter/nvim-treesitter", "nvim-tree/nvim-web-devicons" },
+        config = function()
+            local ok, aerial = pcall(require, "aerial")
+            if ok then
+                aerial.setup({ layout = { max_width = { 40, 0.2 }, min_width = 20 } })
+            end
+        end,
         keys = { { "<leader>a", "<cmd>AerialToggle!<CR>", desc = "Toggle Code Outline" } },
     },
 
@@ -328,22 +405,19 @@ require("lazy").setup({
     {
         "akinsho/toggleterm.nvim",
         version = "*",
-        keys = {
-            { "<C-`>", "<cmd>ToggleTerm<cr>", desc = "Toggle Terminal" },
-            { "<C-`>", "<cmd>ToggleTerm<cr>", mode = "t",              desc = "Toggle Terminal" },
-        },
         config = function()
-            local status, toggleterm = pcall(require, "toggleterm")
-            if not status then return end
+            local ok, toggleterm = pcall(require, "toggleterm")
+            if not ok then return end
 
             toggleterm.setup({
                 direction = 'horizontal',
                 size = 15,
-                shell = vim.fn.has("win32") == 1 and "powershell.exe" or vim.o.shell,
+                shell = is_windows and "powershell.exe" or vim.o.shell,
             })
-        end
+        end,
+        keys = {
+            { "<C-`>", "<cmd>ToggleTerm<cr>", desc = "Toggle Terminal" },
+            { "<C-`>", "<cmd>ToggleTerm<cr>", mode = "t",              desc = "Toggle Terminal" },
+        },
     },
 })
-
--- Apply Theme
-vim.cmd.colorscheme "catppuccin"
