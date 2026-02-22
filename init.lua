@@ -27,6 +27,9 @@ if is_windows then
     opt.shell = "powershell.exe"
 end
 
+local function warn()
+    print("Use HJKL. Please.")
+end
 -- ==========================================================================
 -- KEYBINDINGS (Global)
 -- ==========================================================================
@@ -66,6 +69,18 @@ keymap.set('n', ']d', vim.diagnostic.goto_next, { desc = 'Next Diagnostic' })
 -- Git Keymaps
 keymap.set('n', '<leader>gs', vim.cmd.Git, { desc = 'Git Status' })
 keymap.set('n', '<leader>gp', ':Git push<CR>', { desc = 'Git Push' })
+
+-- Disable Arrow keys in Normal mode
+keymap.set('n', '<up>', warn)
+keymap.set('n', '<down>', warn)
+keymap.set('n', '<left>', warn)
+keymap.set('n', '<right>', warn)
+
+-- Disable Arrow keys in Insert mode (Force the escape habit)
+keymap.set('i', '<up>', '<nop>')
+keymap.set('i', '<down>', '<nop>')
+keymap.set('i', '<left>', '<nop>')
+keymap.set('i', '<right>', '<nop>')
 
 -- ==========================================================================
 -- BOOTSTRAP LAZY.NVIM
