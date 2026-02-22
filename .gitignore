@@ -1,0 +1,9 @@
+# Neovim swap and undo files
+*.swp
+*.swo
+undo/
+shada/
+
+# Lazy.nvim plugin folder (don't upload the actual plugin code, just the config)
+lazy/
+lazy-lock.json

@@ -29,61 +29,31 @@ keymap.set('n', '<leader>q', ':q<CR>', { desc = 'Quit Neovim' })
 keymap.set('n', '<c-s>', ':w<CR>')
 keymap.set('i', '<c-s>', '<Esc>:w<CR>a')
 
--- Undo / Redo (Ctrl+Z, Ctrl+Y)
+-- Undo / Redo
 keymap.set('n', '<C-z>', 'u', { desc = 'Undo' })
 keymap.set('n', '<C-y>', '<C-r>', { desc = 'Redo' })
-keymap.set('i', '<C-z>', '<Esc>ua', { desc = 'Undo in Insert Mode' })
-keymap.set('i', '<C-y>', '<Esc><C-r>a', { desc = 'Redo in Insert Mode' })
 
 -- Standard Clipboard Operations
 keymap.set('n', '<C-a>', 'ggVG', { desc = 'Select All' })
-keymap.set('v', '<C-c>', '"+y', { desc = 'Copy to Clipboard' })
-keymap.set('v', '<C-x>', '"+d', { desc = 'Cut to Clipboard' })
-keymap.set('n', '<C-v>', '"+p', { desc = 'Paste from Clipboard' })
-keymap.set('i', '<C-v>', '<C-r>+', { desc = 'Paste in Insert Mode' })
+keymap.set('v', '<C-c>', '"+y', { desc = 'Copy' })
+keymap.set('v', '<C-x>', '"+d', { desc = 'Cut' })
+keymap.set('n', '<C-v>', '"+p', { desc = 'Paste' })
 
--- Shift + Arrow Selection
-keymap.set('n', '<S-Up>', 'v<Up>')
-keymap.set('n', '<S-Down>', 'v<Down>')
-keymap.set('n', '<S-Left>', 'v<Left>')
-keymap.set('n', '<S-Right>', 'v<Right>')
-keymap.set('v', '<S-Up>', '<Up>')
-keymap.set('v', '<S-Down>', '<Down>')
-keymap.set('v', '<S-Left>', '<Left>')
-keymap.set('v', '<S-Right>', '<Right>')
-keymap.set('i', '<S-Up>', '<Esc>v<Up>')
-keymap.set('i', '<S-Down>', '<Esc>v<Down>')
-keymap.set('i', '<S-Left>', '<Esc>v<Left>')
-keymap.set('i', '<S-Right>', '<Esc>v<Right>')
+-- Diagnostic Navigation
+keymap.set('n', '[d', vim.diagnostic.goto_prev, { desc = 'Prev Diagnostic' })
+keymap.set('n', ']d', vim.diagnostic.goto_next, { desc = 'Next Diagnostic' })
+keymap.set('n', '<leader>d', vim.diagnostic.open_float, { desc = 'Line Diagnostics' })
 
--- Diagnostic Navigation & Floating Window
-keymap.set('n', '[d', vim.diagnostic.goto_prev, { desc = 'Go to previous diagnostic' })
-keymap.set('n', ']d', vim.diagnostic.goto_next, { desc = 'Go to next diagnostic' })
-keymap.set('n', '<leader>d', vim.diagnostic.open_float, { desc = 'Show line diagnostics' })
-
--- Git Keymaps (Fugitive)
+-- Git Keymaps
 keymap.set('n', '<leader>gs', vim.cmd.Git, { desc = 'Git Status' })
 keymap.set('n', '<leader>gp', ':Git push<CR>', { desc = 'Git Push' })
-
--- Window Navigation
-keymap.set('n', '<C-h>', '<C-w>h')
-keymap.set('n', '<C-j>', '<C-w>j')
-keymap.set('n', '<C-k>', '<C-w>k')
-keymap.set('n', '<C-l>', '<C-w>l')
 
 -- ==========================================================================
 -- DIAGNOSTIC CONFIGURATION
 -- ==========================================================================
 vim.diagnostic.config({
     virtual_text = true,
-    float = {
-        focusable = false,
-        style = "minimal",
-        border = "rounded",
-        source = "always",
-        header = "",
-        prefix = "",
-    },
+    float = { focusable = false, border = "rounded" },
 })
 
 -- ==========================================================================
@@ -100,8 +70,6 @@ vim.opt.rtp:prepend(lazypath)
 -- ==========================================================================
 require("lazy").setup({
   "neovim/nvim-lspconfig",
-  
-  -- Git integration
   "tpope/vim-fugitive",
 
   -- Autocompletion
@@ -115,20 +83,28 @@ require("lazy").setup({
     },
   },
 
-  -- Syntax Highlighting
-  { "nvim-treesitter/nvim-treesitter", build = ":TSUpdate" },
-
-  -- Color Highlighter
+  -- Treesitter: Fixed the module loading issue
   { 
-    "nvchad/nvim-colorizer.lua",
-    config = function() require("colorizer").setup() end 
+    "nvim-treesitter/nvim-treesitter", 
+    build = ":TSUpdate",
+    config = function()
+      -- Use pcall to avoid crashing if the module is missing during first install
+      local status, configs = pcall(require, "nvim-treesitter.configs")
+      if not status then
+          return
+      end
+      configs.setup({
+        ensure_installed = { "c", "lua", "vim", "vimdoc" },
+        highlight = { enable = true },
+        indent = { enable = true },
+      })
+    end
   },
 
-  -- Which-Key
+  { "nvchad/nvim-colorizer.lua", config = true },
   { "folke/which-key.nvim", event = "VeryLazy", opts = {} },
-
-  -- Theme & Aesthetics
   { "catppuccin/nvim", name = "catppuccin", priority = 1000 },
+
   {
     'nvim-lualine/lualine.nvim',
     dependencies = { 'nvim-tree/nvim-web-devicons' },
@@ -139,6 +115,13 @@ require("lazy").setup({
   {
     'nvim-telescope/telescope.nvim', tag = '0.1.5',
     dependencies = { 'nvim-lua/plenary.nvim' },
+    opts = {
+      defaults = {
+        preview = {
+          treesitter = false -- Disable TS preview to prevent initialization crashes
+        }
+      }
+    },
     keys = {
         { '<leader>ff', ':Telescope find_files<CR>', desc = 'Find File' },
         { '<leader>lg', ':Telescope live_grep<CR>', desc = 'Search Text' },
@@ -146,7 +129,6 @@ require("lazy").setup({
     }
   },
 
-  -- Toggleterm
   {
     "akinsho/toggleterm.nvim",
     version = "*",
@@ -155,16 +137,10 @@ require("lazy").setup({
             open_mapping = [[<c-\>]], 
             direction = 'float',      
             shell = "powershell.exe",
-            float_opts = {
-                border = 'curved',
-                width = function() return math.ceil(vim.o.columns * 0.8) end,
-                height = function() return math.ceil(vim.o.lines * 0.8) end,
-            }
         })
     end
   },
 
-  -- Oil.nvim
   {
     'stevearc/oil.nvim',
     dependencies = { "nvim-tree/nvim-web-devicons" },
@@ -174,18 +150,6 @@ require("lazy").setup({
 })
 
 vim.cmd.colorscheme "catppuccin"
-
--- ==========================================================================
--- TREESITTER SETUP
--- ==========================================================================
-local ts_status, ts_configs = pcall(require, "nvim-treesitter.configs")
-if ts_status then
-    ts_configs.setup({
-        ensure_installed = { "c", "lua", "vim", "vimdoc" },
-        highlight = { enable = true },
-        indent = { enable = true },
-    })
-end
 
 -- ==========================================================================
 -- AUTOCOMPLETION SETUP
@@ -223,7 +187,6 @@ if lsp_status then
       keymap.set('n', 'K',  vim.lsp.buf.hover, opts)
       keymap.set('n', '<leader>rn', vim.lsp.buf.rename, opts)
       keymap.set('n', '<leader>ca', vim.lsp.buf.code_action, opts)
-      keymap.set('n', 'gr', vim.lsp.buf.references, opts)
     end,
   })
 end
