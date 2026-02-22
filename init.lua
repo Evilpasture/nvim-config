@@ -65,6 +65,7 @@ keymap.set('n', ']d', vim.diagnostic.goto_next, { desc = 'Next Diagnostic' })
 
 -- Git Keymaps
 keymap.set('n', '<leader>gs', vim.cmd.Git, { desc = 'Git Status' })
+keymap.set('n', '<leader>gp', ':Git push<CR>', { desc = 'Git Push' })
 
 -- ==========================================================================
 -- BOOTSTRAP LAZY.NVIM
