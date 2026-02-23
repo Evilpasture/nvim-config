@@ -54,32 +54,40 @@ function sudo {
 # MASTER NERD-FONT PROMPT (Hardened for PS 5.1)
 # ==========================================================================
 function prompt {
-    # 1. Capture status IMMEDIATELY
     $lastStatus = $?
-    
-    # 2. Path Logic
+    $timeStr = Get-Date -Format "HH:mm:ss"
     $shortPath = $(Get-Location).Path.Replace($env:USERPROFILE, "~")
 
-    # 3. Robust Git Check for PS 5.1
+    # 1. Git Logic
     $gitInfo = ""
     $null = git rev-parse --is-inside-work-tree 2>$null
     if ($LASTEXITCODE -eq 0) {
-        $branch = $(git branch --show-current 2>$null)
+        $branch = $(git branch --show-current 2>$null).Trim()
         $dirty = if (git status --porcelain 2>$null) { "*" } else { "" }
-        $gitColor = if ($dirty) { "Red" } else { "Yellow" }
-        $gitInfo = "  $($branch.Trim())$dirty"
+        $gitColor = if ($dirty) { "Red" } else { "Magenta" }
+        $gitInfo = "  $branch$dirty"
     }
 
-    # 4. Draw Prompt (Using standard colors for compatibility)
-    Write-Host "" # Newline
-    Write-Host "  󰉋 $shortPath" -NoNewline -ForegroundColor Cyan
-    if ($gitInfo) { Write-Host $gitInfo -NoNewline -ForegroundColor $gitColor }
-    
-    $statusIcon = if ($lastStatus) { "✔" } else { "✘" }
+    # 2. Status Logic
     $statusColor = if ($lastStatus) { "Green" } else { "Red" }
-    Write-Host "`n  $statusIcon" -NoNewline -ForegroundColor $statusColor
+    $statusIcon = if ($lastStatus) { "󰄬" } else { "󰅙" }
+
+    # 3. Draw Line 1 (The Frame and Info)
+    Write-Host "`n┌─[" -NoNewline -ForegroundColor Gray
+    Write-Host "$timeStr" -NoNewline -ForegroundColor DarkGray
+    Write-Host "]─(" -NoNewline -ForegroundColor Gray
+    Write-Host "󰉋 $shortPath" -NoNewline -ForegroundColor Cyan
+    if ($gitInfo) { 
+        Write-Host ")─(" -NoNewline -ForegroundColor Gray
+        Write-Host "$gitInfo" -NoNewline -ForegroundColor $gitColor 
+    }
+    Write-Host ")" -ForegroundColor Gray
+
+    # 4. Draw Line 2 (The Input)
+    Write-Host "└─" -NoNewline -ForegroundColor Gray
+    Write-Host "$statusIcon " -NoNewline -ForegroundColor $statusColor
     
-    return " ❯ "
+    return "❯ "
 }
 
 # Aliases
