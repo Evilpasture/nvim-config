@@ -114,6 +114,9 @@ keymap.set('i', '<down>', '<nop>')
 keymap.set('i', '<left>', '<nop>')
 keymap.set('i', '<right>', '<nop>')
 
+-- Preview Markdown with 'gp' (Get Preview)
+keymap.set('n', 'gp', ':Glow<CR>', { desc = 'Toggle Glow Markdown Preview' })
+
 -- ==========================================================================
 -- BOOTSTRAP LAZY.NVIM
 -- ==========================================================================
@@ -499,4 +502,10 @@ require("lazy").setup({
             { "<C-`>", "<cmd>ToggleTerm<cr>", mode = "t",              desc = "Toggle Terminal" },
         },
     },
+    {
+        "ellisonleao/glow.nvim",
+        config = true,
+        cmd = "Glow",
+        -- This ensures it only loads when you actually want to preview
+    }
 })
