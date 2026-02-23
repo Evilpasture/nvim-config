@@ -54,6 +54,10 @@ keymap.set('v', '<C-x>', '"+d', { desc = 'Cut' })
 keymap.set('n', '<C-v>', '"+p', { desc = 'Paste' })
 keymap.set('i', '<C-v>', '<C-r>+', { desc = 'Paste in Insert Mode' })
 
+-- IDE-style Tab Indenting
+keymap.set('v', '<Tab>', '>gv', { desc = 'Indent selection' })
+keymap.set('v', '<S-Tab>', '<gv', { desc = 'Unindent selection' })
+
 -- Window Navigation
 keymap.set('n', '<leader>v', ':vsplit<CR>', { desc = 'Vertical Split' })
 keymap.set('n', '<leader>h', ':split<CR>', { desc = 'Horizontal Split' })
