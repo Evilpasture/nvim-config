@@ -28,6 +28,33 @@ if is_windows then
     opt.shell = "powershell.exe"
 end
 
+
+-- ==========================================================================
+-- FILETYPE AND TREESITTER BRIDGE
+-- ==========================================================================
+vim.filetype.add({
+    extension = {
+        hlsl = "hlsl",
+        glsl = "glsl",
+        vert = "glsl",
+        frag = "glsl",
+    },
+})
+
+-- Register the language BEFORE lazy-loading starts
+vim.treesitter.language.register('hlsl', 'hlsl')
+vim.treesitter.language.register('glsl', 'glsl')
+
+-- Create the autocmd HERE (Global scope)
+-- This ensures that as soon as a file is identified as hlsl,
+-- it tries to start treesitter, even if the plugin is still loading.
+vim.api.nvim_create_autocmd({ "FileType" }, {
+    pattern = { "hlsl", "glsl" },
+    callback = function(ev)
+        pcall(vim.treesitter.start, ev.buf, "hlsl")
+    end,
+})
+
 local function warn()
     print("Use HJKL. Please.")
 end
@@ -305,6 +332,8 @@ require("lazy").setup({
                     lua = { "stylua" },
                     c = { "clang-format" },
                     cpp = { "clang-format" },
+                    hlsl = { "clang-format" },
+                    glsl = { "clang-format" },
                     python = { "black" }, -- Python Formatter
                     javascript = { "prettier" },
                 },
@@ -313,17 +342,28 @@ require("lazy").setup({
         end
     },
 
-    -- 4. Syntax Highlighting (Defensive)
+    -- 4. Syntax Highlighting
     {
         "nvim-treesitter/nvim-treesitter",
         build = ":TSUpdate",
+        event = { "BufReadPost", "BufNewFile" }, -- Load when opening a file
         config = function()
             local ok, configs = pcall(require, "nvim-treesitter.configs")
             if not ok then return end
 
+            -- 1. Get the installer module
+            local install = require('nvim-treesitter.install')
+
+            -- 2. Configure compilers
+            -- On Windows, 'zig' is a great choice, but we must tell
+            -- Treesitter to use it correctly without manual Env vars.
+            install.compilers = { "zig" }
+            install.prefer_git = false
+
             configs.setup({
-                ensure_installed = { "c", "cpp", "lua", "vim", "vimdoc", "javascript", "python" },
-                highlight = { enable = true },
+                -- Add "zig" to ensure_installed if you want highlighting for zig files too
+                ensure_installed = { "c", "cpp", "lua", "vim", "vimdoc", "javascript", "python", "hlsl", "glsl" },
+                highlight = { enable = true, additional_vim_regex_highlighting = false, },
                 indent = { enable = true },
             })
         end
