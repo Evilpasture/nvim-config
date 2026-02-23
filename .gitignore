@@ -7,3 +7,15 @@ shada/
 # Lazy.nvim plugin folder (don't upload the actual plugin code, just the config)
 lazy/
 lazy-lock.json
+
+# IDE folders
+.venv/
+__pycache__/
+.pytest_cache/
+.vscode/
+
+# Local sekrits
+.env
+*.key
+*.token
+credentials.json
