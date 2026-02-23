@@ -19,82 +19,107 @@ cbuffer PixelShaderSettings : register(b0) {
     float4 Background;
 };
 
-// --------------------------------------------------------
-// HELPER: Pseudo-Random Number Generator
-// --------------------------------------------------------
 float hash(float n) {
     return frac(sin(n) * 43758.5453123);
 }
 
 float4 main(float4 position : SV_Position, float2 uv : TEXCOORD) : SV_Target {
+    
     // --------------------------------------------------------
-    // 1. CURVATURE (Barrel Distortion)
+    // 0. WARM-UP CYCLE
+    // --------------------------------------------------------
+    // Prevents effects from exploding immediately at launch.
+    // Effects fade in over the first 10 seconds.
+    float warmup = saturate(Time / 10.0);
+
+    // --------------------------------------------------------
+    // 1. BASE CURVATURE
     // --------------------------------------------------------
     float2 centeredUV = uv * 2.0 - 1.0;
-    
-    // Adjust curvature (Higher numbers = flatter screen)
     float2 offset = abs(centeredUV.yx) / float2(5.0, 4.0); 
     centeredUV = centeredUV + centeredUV * offset * offset;
     float2 curvedUV = centeredUV * 0.5 + 0.5;
 
-    // Hard Bezel (Black void outside glass)
     if (curvedUV.x < 0.0 || curvedUV.x > 1.0 || curvedUV.y < 0.0 || curvedUV.y > 1.0) {
         return float4(0, 0, 0, 1);
     }
 
     // --------------------------------------------------------
-    // 2. RANDOMIZED HORIZONTAL JITTER (The "Bad Cable" Effect)
+    // 2. DEGAUSS EFFECT (Fixed)
     // --------------------------------------------------------
-    // Divide time into 0.125 second "blocks" (8 times per second)
+    float degaussTime = fmod(Time, 60.0);
+    
+    // FIX: Only allow degauss if the terminal has been open for > 10 seconds
+    if (degaussTime < 1.0 && Time > 10.0) {
+        float decay = (1.0 - degaussTime);
+        float shakeX = sin(degaussTime * 150.0) * decay * 0.015;
+        float shakeY = cos(degaussTime * 140.0) * decay * 0.015;
+        curvedUV += float2(shakeX, shakeY);
+    }
+
+    // --------------------------------------------------------
+    // 3. MAGNETIC INTERFERENCE (With Warmup)
+    // --------------------------------------------------------
+    float2 magnetPos = float2(
+        0.5 + 0.35 * cos(Time * 0.4), 
+        0.5 + 0.25 * sin(Time * 0.9)
+    );
+
+    float distToMagnet = distance(curvedUV, magnetPos);
+    float inField = 1.0 - smoothstep(0.0, 0.25, distToMagnet); 
+    float magnetStrength = 0.0;
+    
+    if (inField > 0.0) {
+        // Multiply by warmup so magnet doesn't warp text instantly on launch
+        magnetStrength = inField * 0.03 * warmup; 
+        curvedUV += (magnetPos - curvedUV) * magnetStrength;
+    }
+
+    // --------------------------------------------------------
+    // 4. JITTER & COLOR SAMPLING
+    // --------------------------------------------------------
     float timeBlock = floor(Time * 8.0);
-    
-    // Get a static random number (0.0 to 1.0) for this specific block
     float diceRoll = hash(timeBlock);
+    float isGlitching = step(0.98, diceRoll);
     
-    // Trigger glitch only if we roll > 0.999
-    float isGlitching = step(0.999, diceRoll);
-    
-    // If triggered, shake violently using high-frequency sine
-    float jitter = isGlitching * sin(Time * 250.0) * 0.003;
-    
-    // --------------------------------------------------------
-    // 3. COLOR SAMPLING & ABERRATION
-    // --------------------------------------------------------
+    // Apply warmup to glitch too
+    float jitter = isGlitching * sin(Time * 250.0) * 0.003 * warmup;
+
+    // Base Aberration
     float2 centerDist = curvedUV - 0.5;
     float aberrationAmt = dot(centerDist, centerDist) * 0.0025;
     
-    // Boost brightness (1.35) to cut through the masks
+    // Add Magnetic Shift
+    aberrationAmt += magnetStrength * 0.05;
+
+    // Degauss Color Swirl (Only after 10s)
+    if (degaussTime < 1.0 && Time > 10.0) {
+        aberrationAmt += (1.0 - degaussTime) * 0.05; 
+    }
+
+    // Sample Texture
     float3 color;
     color.r = shaderTexture.Sample(samplerState, curvedUV + float2(aberrationAmt + jitter, 0)).r * 1.35;
     color.g = shaderTexture.Sample(samplerState, curvedUV + float2(jitter, 0)).g * 1.35;
     color.b = shaderTexture.Sample(samplerState, curvedUV - float2(aberrationAmt - jitter, 0)).b * 1.35;
 
     // --------------------------------------------------------
-    // 4. PULSING SCANLINES
+    // 5. SCANLINES & PHOSPHORS
     // --------------------------------------------------------
     float pulse = 1.0 + (0.15 * sin(Time * 1.2)); 
-    
-    // Use CURVED UVs
     float scanline = sin(curvedUV.y * Resolution.y * 3.14159);
     scanline = 0.5 + 0.5 * scanline;
     
     float brightness = dot(color, float3(0.299, 0.587, 0.114));
-    float dynamicDarkness = 0.08 * pulse; 
-    
-    float scanlineIntensity = lerp(dynamicDarkness, 0.0, brightness); 
+    float scanlineIntensity = lerp(0.08 * pulse, 0.0, brightness); 
     color -= scanlineIntensity * scanline;
 
-    // --------------------------------------------------------
-    // 5. RGB SUBPIXEL MASK (Aperture Grille)
-    // --------------------------------------------------------
+    // Aperture Grille
     float xPos = curvedUV.x * Resolution.x;
     float3 mask = float3(1.0, 1.0, 1.0);
-    
-    // Trinitron-style vertical stripes
-    mask.r = 0.8 + 0.2 * cos(xPos * 3.14159 * 2.0); 
-    mask.g = 0.8 + 0.2 * cos((xPos + 0.33) * 3.14159 * 2.0);
-    mask.b = 0.8 + 0.2 * cos((xPos + 0.66) * 3.14159 * 2.0);
-    
+    mask.r = 0.8 + 0.2 * cos(xPos * 6.28); 
+    mask.g = 0.8 + 0.2 * cos((xPos + 0.33) * 6.28);
+    mask.b = 0.8 + 0.2 * cos((xPos + 0.66) * 6.28);
     color *= mask;
 
     // --------------------------------------------------------
@@ -112,6 +137,15 @@ float4 main(float4 position : SV_Position, float2 uv : TEXCOORD) : SV_Target {
     // Vignette
     float vignette = curvedUV.x * curvedUV.y * (1.0 - curvedUV.x) * (1.0 - curvedUV.y);
     vignette = saturate(pow(16.0 * vignette, 0.15)); 
+    
+    // --------------------------------------------------------
+    // 7. POST-PROCESS
+    // --------------------------------------------------------
+    float flicker = 0.98 + 0.02 * sin(Time * 120.0);
+    float noise = (hash(curvedUV.x + (curvedUV.y * 100.0) + (Time * 10.0)) - 0.5) * 0.04;
+    
+    color *= flicker;
+    color += noise;
 
     return float4(saturate(color * vignette), 1.0);
 }
