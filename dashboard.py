@@ -3,6 +3,7 @@ import platform
 import datetime
 import threading
 import os
+from terminal_manager import TerminalManager
 
 # ANSI Colors
 CYAN = "\033[96m"
@@ -23,7 +24,20 @@ def get_gh_data(command):
     except Exception:
         return []
 
+
+def auto_adjust_terminal():
+    manager = TerminalManager()
+    hour = datetime.datetime.now().hour
+    
+    # If it's late, make the terminal darker and turn on the retro vibe
+    if hour >= 20 or hour <= 6:
+        manager.update_profile("PowerShell", opacity=60, experimental_retroTerminalEffect=True)
+    else:
+        manager.update_profile("PowerShell", opacity=90, experimental_retroTerminalEffect=False)
+
+
 def show_dashboard():
+    auto_adjust_terminal()
     # Store results in a dictionary for thread safety
     results = {'prs': [], 'issues': []}
     

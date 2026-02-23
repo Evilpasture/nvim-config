@@ -1,4 +1,4 @@
-# ==========================================================================
+﻿# ==========================================================================
 # RE-WRITTEN DASHBOARD (Python Caller)
 # ==========================================================================
 $PYTHON_DASH_PATH = "$HOME\AppData\Local\nvim\dashboard.py" # Update this path!
@@ -42,7 +42,7 @@ function sudo {
     if (-not $CurrentGHUser) { $CurrentGHUser = $(gh api user --jq .login 2>$null) }
 
     if ($CurrentGHUser -eq $AuthorizedUser) {
-        Write-Host " [✓] GitHub Identity Verified: @$CurrentGHUser" -ForegroundColor Green
+        Write-Host "[✓] GitHub Identity Verified: @$CurrentGHUser" -ForegroundColor Green
         if ($null -eq $CommandArgs) { gsudo } else { gsudo $CommandArgs }
     } else {
         Write-Host " [!] ACCESS DENIED: User '@$CurrentGHUser' is not authorized." -ForegroundColor Red
@@ -51,26 +51,30 @@ function sudo {
 
 
 # ==========================================================================
-# MASTER NERD-FONT PROMPT (Optimized)
+# MASTER NERD-FONT PROMPT (Hardened for PS 5.1)
 # ==========================================================================
 function prompt {
+    # 1. Capture status IMMEDIATELY
     $lastStatus = $?
+    
+    # 2. Path Logic
     $shortPath = $(Get-Location).Path.Replace($env:USERPROFILE, "~")
 
-    # Fast Git Check (avoiding heavy objects)
+    # 3. Robust Git Check for PS 5.1
     $gitInfo = ""
-    if (git rev-parse --is-inside-work-tree 2>$null) {
-        $branch = git branch --show-current
-        $dirty = if (git status --porcelain) { "*" } else { "" }
+    $null = git rev-parse --is-inside-work-tree 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        $branch = $(git branch --show-current 2>$null)
+        $dirty = if (git status --porcelain 2>$null) { "*" } else { "" }
         $gitColor = if ($dirty) { "Red" } else { "Yellow" }
-        $gitInfo = "  $branch$dirty"
+        $gitInfo = "  $($branch.Trim())$dirty"
     }
 
-    # Line 1
-    Write-Host "`n  󰉋 $shortPath" -NoNewline -ForegroundColor Cyan
-    if ($gitInfo) { Write-Host $gitInfo -ForegroundColor $gitColor }
+    # 4. Draw Prompt (Using standard colors for compatibility)
+    Write-Host "" # Newline
+    Write-Host "  󰉋 $shortPath" -NoNewline -ForegroundColor Cyan
+    if ($gitInfo) { Write-Host $gitInfo -NoNewline -ForegroundColor $gitColor }
     
-    # Line 2: Status Icon
     $statusIcon = if ($lastStatus) { "✔" } else { "✘" }
     $statusColor = if ($lastStatus) { "Green" } else { "Red" }
     Write-Host "`n  $statusIcon" -NoNewline -ForegroundColor $statusColor
