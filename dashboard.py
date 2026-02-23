@@ -77,6 +77,30 @@ def clean_gh_line(line, is_pr=True):
     icon = ICON_PR if is_pr else ICON_BUG
     return f"  {C_MAGENTA}{icon} {number}{RESET} {C_WHITE}{title[:50].ljust(50)}{RESET} {C_GRAY}({repo}){RESET}"
 
+def get_github_username():
+    """Retrieves the logged-in GitHub username from local config (instant)"""
+    try:
+        # Check local config first (fastest)
+        username = subprocess.check_output(
+            'gh config get -h github.com user', 
+            shell=True, stderr=subprocess.DEVNULL
+        ).decode("utf-8").strip()
+        
+        if username:
+            return username
+            
+        # Fallback to API if config is empty
+        username = subprocess.check_output(
+            'gh api user --jq .login', 
+            shell=True, stderr=subprocess.DEVNULL
+        ).decode("utf-8").strip()
+        
+        return username
+    except:
+        # Final fallback to Windows username if GH is not configured
+        return os.environ.get('USERNAME', 'User')
+
+
 # ==============================================================================
 # 3. LOGIC CONTROLLERS
 # ==============================================================================
@@ -124,7 +148,7 @@ def show_dashboard():
     elif now.hour < 18: greeting = "Good Afternoon"
     else: greeting = "Good Evening"
     
-    user = os.environ.get('USERNAME', 'User')
+    github_user = get_github_username()
 
     # ==========================================================================
     # 4. RENDER UI
@@ -133,7 +157,7 @@ def show_dashboard():
     
     # --- HEADER ---
     print(f"  {C_GRAY}┌─{RESET} {C_CYAN}{ICON_OS} SYSTEM STATUS{RESET}")
-    print(f"  {C_GRAY}│{RESET} {C_WHITE}{greeting}, {BOLD}{user}{RESET}")
+    print(f"  {C_GRAY}│{RESET} {C_WHITE}{greeting}, {C_MAGENTA}@{github_user}{RESET}") 
     print(f"  {C_GRAY}│{RESET} {ICON_TIME} {date_str} {C_GRAY}|{RESET} {C_GOLD}{time_str}{RESET}")
     
     # --- DISK USAGE ---
