@@ -55,39 +55,58 @@ function sudo {
 # ==========================================================================
 function prompt {
     $lastStatus = $?
-    $timeStr = Get-Date -Format "HH:mm:ss"
-    $shortPath = $(Get-Location).Path.Replace($env:USERPROFILE, "~")
+    $timeStr = Get-Date -Format "HH:mm"
+    
+    # 1. ANSI Color Definitions (256-color palette)
+    $E = [char]27
+    $Reset = "$E[0m"
+    $Bold  = "$E[1m"
+    
+    # Foreground Colors
+    $DimGray   = "$E[38;5;240m"
+    $MidGray   = "$E[38;5;244m"
+    $Gold      = "$E[38;5;214m"
+    $DeepCyan  = "$E[38;5;39m"
+    $SoftGreen = "$E[38;5;78m"
+    $SoftRed   = "$E[38;5;203m"
+    $MutedMag  = "$E[38;5;170m"
+    
+    # Backgrounds
+    $BarBG     = "$E[48;5;235m" # Recessed dark bar
+    $TimeBG    = "$E[48;5;238m" # Slightly lighter for the time pill
+    
+    # 2. Path Logic
+    $fullPath = (Get-Location).Path
+    $drive = $fullPath.Substring(0, 2)
+    $restOfPath = $fullPath.Substring(2).Replace($env:USERPROFILE, "~")
+    if ($restOfPath -eq "") { $restOfPath = "\" }
 
-    # 1. Git Logic
+    # 3. Git Status (Optimized)
     $gitInfo = ""
     $null = git rev-parse --is-inside-work-tree 2>$null
     if ($LASTEXITCODE -eq 0) {
         $branch = $(git branch --show-current 2>$null).Trim()
-        $dirty = if (git status --porcelain 2>$null) { "*" } else { "" }
-        $gitColor = if ($dirty) { "Red" } else { "Magenta" }
-        $gitInfo = "  $branch$dirty"
+        $dirty = if (git status --porcelain 2>$null) { " $SoftRed󱈸" } else { "" }
+        $gitInfo = " $MidGray $MutedMag$branch$dirty"
     }
 
-    # 2. Status Logic
-    $statusColor = if ($lastStatus) { "Green" } else { "Red" }
-    $statusIcon = if ($lastStatus) { "󰄬" } else { "󰅙" }
+    # 4. Construct Line 1 (The Pill & Information Bar)
+    #  and  create the rounded container
+    $line1 = "`n$DimGray$TimeBG$Bold $timeStr $Reset$DimGray" # Time Pill
+    $line1 += " $Gold󰋊 $drive$Reset"                          # Drive
+    $line1 += " $DeepCyan󰉋 $restOfPath$Reset"                 # Path
+    $line1 += "$gitInfo$Reset"                                # Git
 
-    # 3. Draw Line 1 (The Frame and Info)
-    Write-Host "`n┌─[" -NoNewline -ForegroundColor Gray
-    Write-Host "$timeStr" -NoNewline -ForegroundColor DarkGray
-    Write-Host "]─(" -NoNewline -ForegroundColor Gray
-    Write-Host "󰉋 $shortPath" -NoNewline -ForegroundColor Cyan
-    if ($gitInfo) { 
-        Write-Host ")─(" -NoNewline -ForegroundColor Gray
-        Write-Host "$gitInfo" -NoNewline -ForegroundColor $gitColor 
-    }
-    Write-Host ")" -ForegroundColor Gray
+    Write-Host $line1
 
-    # 4. Draw Line 2 (The Input)
-    Write-Host "└─" -NoNewline -ForegroundColor Gray
-    Write-Host "$statusIcon " -NoNewline -ForegroundColor $statusColor
+    # 5. Construct Line 2 (The Input)
+    $statusColor = if ($lastStatus) { $SoftGreen } else { $SoftRed }
+    $statusIcon  = if ($lastStatus) { "󰄬" } else { "󰅙" }
     
-    return "❯ "
+    # Draw the industrial elbow connector
+    Write-Host "$DimGray└─$statusColor$statusIcon$Reset " -NoNewline
+    
+    return "$Bold❯$Reset "
 }
 
 # Aliases
