@@ -3,88 +3,170 @@ import platform
 import datetime
 import threading
 import os
-from terminal_manager import TerminalManager
+import shutil
+import sys
 
-# ANSI Colors
-CYAN = "\033[96m"
-YELLOW = "\033[93m"
-GRAY = "\033[90m"
-RESET = "\033[0m"
+# Try to import the manager, handle gracefully if missing
+try:
+    from terminal_manager import TerminalManager
+    HAS_MANAGER = True
+except ImportError:
+    HAS_MANAGER = False
+
+# ==============================================================================
+# 1. THEME & CONSTANTS
+# ==============================================================================
+# ANSI 256-Color Palette (Matches your Prompt)
+E = "\033["
+RESET = f"{E}0m"
+BOLD = f"{E}1m"
+
+# Colors
+C_GRAY    = f"{E}38;5;240m"  # Dark Gray (Borders)
+C_WHITE   = f"{E}38;5;250m"  # Text
+C_CYAN    = f"{E}38;5;39m"   # Accents
+C_GOLD    = f"{E}38;5;214m"  # Warnings / Highlights
+C_GREEN   = f"{E}38;5;78m"   # Success
+C_MAGENTA = f"{E}38;5;170m"  # Git / Special
+
+# Icons (Nerd Font)
+ICON_OS   = ""
+ICON_DISK = "󰋊"
+ICON_GIT  = ""
+ICON_PR   = ""
+ICON_BUG  = ""
+ICON_TIME = ""
+
+# ==============================================================================
+# 2. HELPER FUNCTIONS
+# ==============================================================================
+def draw_bar(percent, width=20):
+    """Draws a progress bar using block characters"""
+    fill_len = int(width * percent / 100)
+    empty_len = width - fill_len
+    
+    # Color logic: Green -> Gold -> Red based on fullness
+    color = C_GREEN
+    if percent > 70: color = C_GOLD
+    if percent > 90: color = f"{E}38;5;196m" # Red
+    
+    bar = f"{color}{'█' * fill_len}{C_GRAY}{'░' * empty_len}{RESET}"
+    return f"{bar} {color}{percent}%{RESET}"
 
 def get_gh_data(command):
     try:
         # Run command and decode
         output = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT).decode("utf-8").strip()
-        
-        # Previously, .split('\n') on an empty string returned [''], which is "True" in Python.
-        if not output:
-            return []
-            
+        if not output: return []
         return output.split('\n')
-    except Exception:
+    except:
         return []
 
+def clean_gh_line(line, is_pr=True):
+    """Parses raw GH output into something pretty"""
+    # Raw format is usually: repo/name  #123  Title...
+    parts = line.split('\t')
+    
+    if len(parts) < 3: return f"  {C_GRAY}•{RESET} {line}"
 
+    # Extract useful bits
+    repo = parts[0]
+    number = parts[1]
+    title = parts[2]
+    
+    icon = ICON_PR if is_pr else ICON_BUG
+    return f"  {C_MAGENTA}{icon} {number}{RESET} {C_WHITE}{title[:50].ljust(50)}{RESET} {C_GRAY}({repo}){RESET}"
+
+# ==============================================================================
+# 3. LOGIC CONTROLLERS
+# ==============================================================================
 def auto_adjust_terminal():
+    if not HAS_MANAGER: return
+
     manager = TerminalManager()
     hour = datetime.datetime.now().hour
     
-    # If it's late, make the terminal darker and turn on the retro vibe
+    # NIGHT MODE (20:00 - 06:00): Darker, Retro effects ON
     if hour >= 20 or hour <= 6:
-        manager.update_profile("PowerShell", opacity=60, experimental_retroTerminalEffect=True)
+        manager.update_profile("PowerShell", opacity=85, experimental_retroTerminalEffect=True)
+        return "NIGHT"
+    # DAY MODE: Brighter, Sharp text
     else:
-        manager.update_profile("PowerShell", opacity=90, experimental_retroTerminalEffect=False)
-
+        manager.update_profile("PowerShell", opacity=95, experimental_retroTerminalEffect=False)
+        return "DAY"
 
 def show_dashboard():
-    auto_adjust_terminal()
-    # Store results in a dictionary for thread safety
+    # 1. Trigger Theme Update
+    mode = auto_adjust_terminal()
+    
+    # 2. Start Async GitHub Fetch
     results = {'prs': [], 'issues': []}
     
+    # We use 'view' or list with tab separation for easier parsing
     pr_cmd = 'gh search prs --author "@me" --state open --limit 3'
     issue_cmd = 'gh search issues --author "@me" --state open --limit 3'
     
-    # Define threading logic
-    def fetch_prs(): results['prs'] = get_gh_data(pr_cmd)
-    def fetch_issues(): results['issues'] = get_gh_data(issue_cmd)
-    
-    t1 = threading.Thread(target=fetch_prs)
-    t2 = threading.Thread(target=fetch_issues)
-    
+    t1 = threading.Thread(target=lambda: results.update({'prs': get_gh_data(pr_cmd)}))
+    t2 = threading.Thread(target=lambda: results.update({'issues': get_gh_data(issue_cmd)}))
     t1.start()
     t2.start()
 
-    # System Info (Runs while GitHub commands are working)
-    date_str = datetime.datetime.now().strftime("%A, %B %d | %H:%M")
-    os_name = f"{platform.system()} {platform.release()}"
-    computer_name = os.environ.get('COMPUTERNAME', 'Unknown')
+    # 3. Calculate System Stats (While waiting)
+    total, used, free = shutil.disk_usage("C:/")
+    disk_percent = int((used / total) * 100)
+    
+    now = datetime.datetime.now()
+    date_str = now.strftime("%A, %d %B")
+    time_str = now.strftime("%H:%M")
+    
+    # Greeting
+    if now.hour < 12: greeting = "Good Morning"
+    elif now.hour < 18: greeting = "Good Afternoon"
+    else: greeting = "Good Evening"
+    
+    user = os.environ.get('USERNAME', 'User')
 
-    print(f"\n  {CYAN}{'-'*56}")
-    print(f"  SYSTEM: {computer_name} | {date_str}")
-    print(f"  {'-'*56}{RESET}")
-    print(f"  {GRAY}💻 OS: {os_name}{RESET}")
-
+    # ==========================================================================
+    # 4. RENDER UI
+    # ==========================================================================
+    print("") 
+    
+    # --- HEADER ---
+    print(f"  {C_GRAY}┌─{RESET} {C_CYAN}{ICON_OS} SYSTEM STATUS{RESET}")
+    print(f"  {C_GRAY}│{RESET} {C_WHITE}{greeting}, {BOLD}{user}{RESET}")
+    print(f"  {C_GRAY}│{RESET} {ICON_TIME} {date_str} {C_GRAY}|{RESET} {C_GOLD}{time_str}{RESET}")
+    
+    # --- DISK USAGE ---
+    print(f"  {C_GRAY}│{RESET} {ICON_DISK} C: {draw_bar(disk_percent)}")
+    
     # Wait for threads
     t1.join()
     t2.join()
 
-    # Pull Requests Section
-    print(f"\n  {YELLOW}OPEN PULL REQUESTS (Global):{RESET}")
-    if results['prs']: # This now correctly evaluates to False if list is empty
-        for line in results['prs']: 
-            print(f"     {line}")
-    else:
-        print(f"      {GRAY}All caught up!{RESET}")
+    print(f"  {C_GRAY}│{RESET}")
 
-    # Issues Section
-    print(f"\n  {YELLOW}OPEN ISSUES (Global):{RESET}")
+    # --- PULL REQUESTS ---
+    print(f"  {C_GRAY}├─{RESET} {C_GOLD}OPEN PULL REQUESTS{RESET}")
+    if results['prs']:
+        for line in results['prs']:
+            print(clean_gh_line(line, is_pr=True))
+    else:
+        print(f"  {C_GRAY}│  {C_GREEN}✓ All caught up! No open PRs.{RESET}")
+
+    print(f"  {C_GRAY}│{RESET}")
+
+    # --- ISSUES ---
+    print(f"  {C_GRAY}├─{RESET} {C_GOLD}PENDING ISSUES{RESET}")
     if results['issues']:
-        for line in results['issues']: 
-            print(f"     {line}")
+        for line in results['issues']:
+             print(clean_gh_line(line, is_pr=False))
     else:
-        print(f"      {GRAY}No pending issues.{RESET}")
+        print(f"  {C_GRAY}│  {C_GREEN}✓ Clear. No assigned issues.{RESET}")
 
-    print(f"\n  {CYAN}{'-'*56}{RESET}\n")
+    # --- FOOTER ---
+    # Draw a footer line
+    print(f"  {C_GRAY}└──────────────────────────────────────────────────────────{RESET}")
+    print("")
 
 if __name__ == "__main__":
     show_dashboard()
