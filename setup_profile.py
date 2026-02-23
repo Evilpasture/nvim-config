@@ -19,37 +19,36 @@ cbuffer PixelShaderSettings : register(b0) {
     float4 Background;
 };
 
-float hash(float n) {
-    return frac(sin(n) * 43758.5453123);
+// Interleaved Gradient Noise (High Performance)
+float InterleavedGradientNoise(float2 uv) {
+    float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
+    return frac(magic.z * frac(dot(uv, magic.xy)));
 }
 
 float4 main(float4 position : SV_Position, float2 uv : TEXCOORD) : SV_Target {
     
     // --------------------------------------------------------
-    // 0. WARM-UP CYCLE
-    // --------------------------------------------------------
-    // Prevents effects from exploding immediately at launch.
-    // Effects fade in over the first 10 seconds.
-    float warmup = saturate(Time / 10.0);
-
-    // --------------------------------------------------------
-    // 1. BASE CURVATURE
+    // 1. EARLY EXIT CURVATURE
     // --------------------------------------------------------
     float2 centeredUV = uv * 2.0 - 1.0;
     float2 offset = abs(centeredUV.yx) / float2(5.0, 4.0); 
     centeredUV = centeredUV + centeredUV * offset * offset;
     float2 curvedUV = centeredUV * 0.5 + 0.5;
 
-    if (curvedUV.x < 0.0 || curvedUV.x > 1.0 || curvedUV.y < 0.0 || curvedUV.y > 1.0) {
+    if (any(curvedUV < 0.0) || any(curvedUV > 1.0)) {
         return float4(0, 0, 0, 1);
     }
 
     // --------------------------------------------------------
-    // 2. DEGAUSS EFFECT (Fixed)
+    // 2. TIMING & WARMUP
     // --------------------------------------------------------
-    float degaussTime = fmod(Time, 60.0);
-    
-    // FIX: Only allow degauss if the terminal has been open for > 10 seconds
+    float degaussTime = frac(Time / 60.0) * 60.0;
+    float warmup = saturate(Time / 10.0);
+
+    // --------------------------------------------------------
+    // 3. PHYSICAL DEFORMATIONS
+    // --------------------------------------------------------
+    // Degauss Shake
     if (degaussTime < 1.0 && Time > 10.0) {
         float decay = (1.0 - degaussTime);
         float shakeX = sin(degaussTime * 150.0) * decay * 0.015;
@@ -57,92 +56,99 @@ float4 main(float4 position : SV_Position, float2 uv : TEXCOORD) : SV_Target {
         curvedUV += float2(shakeX, shakeY);
     }
 
-    // --------------------------------------------------------
-    // 3. MAGNETIC INTERFERENCE (With Warmup)
-    // --------------------------------------------------------
+    // *** INVERSE SQUARE MAGNET LOGIC ***
     float2 magnetPos = float2(
         0.5 + 0.35 * cos(Time * 0.4), 
         0.5 + 0.25 * sin(Time * 0.9)
     );
-
+    
+    // 1. Raw Distance
     float distToMagnet = distance(curvedUV, magnetPos);
-    float inField = 1.0 - smoothstep(0.0, 0.25, distToMagnet); 
-    float magnetStrength = 0.0;
     
-    if (inField > 0.0) {
-        // Multiply by warmup so magnet doesn't warp text instantly on launch
-        magnetStrength = inField * 0.03 * warmup; 
-        curvedUV += (magnetPos - curvedUV) * magnetStrength;
-    }
+    // 2. Physical Falloff (1 / r)
+    // We use a small epsilon (0.01) to prevent division by zero.
+    // The field strength drops off rapidly but never truly hits zero.
+    float fieldPower = 0.02 / (distToMagnet + 0.01); 
+    float inField = pow(saturate(fieldPower), 2.0); // Shape the curve
+    
+    // 3. Apply Warmup
+    float magnetStrength = inField * 0.05 * warmup;
+
+    // Apply Geometric Warp (Pulling pixels towards the magnet)
+    curvedUV += (magnetPos - curvedUV) * magnetStrength;
 
     // --------------------------------------------------------
-    // 4. JITTER & COLOR SAMPLING
+    // 4. SAMPLING & ELECTRON BEAM DIVERGENCE
     // --------------------------------------------------------
+    // Jitter (Using IGN)
     float timeBlock = floor(Time * 8.0);
-    float diceRoll = hash(timeBlock);
+    float diceRoll = InterleavedGradientNoise(float2(timeBlock, timeBlock)); 
     float isGlitching = step(0.98, diceRoll);
-    
-    // Apply warmup to glitch too
     float jitter = isGlitching * sin(Time * 250.0) * 0.003 * warmup;
 
-    // Base Aberration
+    // Base Aberration (Lens curvature)
     float2 centerDist = curvedUV - 0.5;
     float aberrationAmt = dot(centerDist, centerDist) * 0.0025;
     
-    // Add Magnetic Shift
-    aberrationAmt += magnetStrength * 0.05;
+    // *** MAGNETIC RAINBOW EFFECT ***
+    // Magnets bend electron beams based on mass/charge. 
+    // This causes R, G, and B to split heavily under magnetic load.
+    float magnetColorShift = magnetStrength * 1.5; 
+    aberrationAmt += magnetColorShift;
 
-    // Degauss Color Swirl (Only after 10s)
-    if (degaussTime < 1.0 && Time > 10.0) {
-        aberrationAmt += (1.0 - degaussTime) * 0.05; 
-    }
+    // Degauss Swirl
+    if (degaussTime < 1.0 && Time > 10.0) aberrationAmt += (1.0 - degaussTime) * 0.05;
 
-    // Sample Texture
+    // 3-Tap Sampling
     float3 color;
-    color.r = shaderTexture.Sample(samplerState, curvedUV + float2(aberrationAmt + jitter, 0)).r * 1.35;
-    color.g = shaderTexture.Sample(samplerState, curvedUV + float2(jitter, 0)).g * 1.35;
-    color.b = shaderTexture.Sample(samplerState, curvedUV - float2(aberrationAmt - jitter, 0)).b * 1.35;
+    color.r = shaderTexture.Sample(samplerState, curvedUV + float2(aberrationAmt + jitter, 0)).r;
+    color.g = shaderTexture.Sample(samplerState, curvedUV + float2(jitter, 0)).g;
+    color.b = shaderTexture.Sample(samplerState, curvedUV - float2(aberrationAmt - jitter, 0)).b;
+    
+    color *= 1.35; // Brightness compensation
 
     // --------------------------------------------------------
-    // 5. SCANLINES & PHOSPHORS
+    // 5. SCANLINES & PHOSPHOR PERSISTENCE
     // --------------------------------------------------------
     float pulse = 1.0 + (0.15 * sin(Time * 1.2)); 
     float scanline = sin(curvedUV.y * Resolution.y * 3.14159);
     scanline = 0.5 + 0.5 * scanline;
     
     float brightness = dot(color, float3(0.299, 0.587, 0.114));
-    float scanlineIntensity = lerp(0.08 * pulse, 0.0, brightness); 
+
+    // Phosphor Bleed
+    float persistence = smoothstep(0.6, 1.0, brightness);
+    float dynamicDarkness = lerp(0.08 * pulse, 0.01, persistence); 
+    
+    float scanlineIntensity = lerp(dynamicDarkness, 0.0, brightness); 
     color -= scanlineIntensity * scanline;
 
     // Aperture Grille
     float xPos = curvedUV.x * Resolution.x;
-    float3 mask = float3(1.0, 1.0, 1.0);
-    mask.r = 0.8 + 0.2 * cos(xPos * 6.28); 
-    mask.g = 0.8 + 0.2 * cos((xPos + 0.33) * 6.28);
-    mask.b = 0.8 + 0.2 * cos((xPos + 0.66) * 6.28);
+    float3 mask = 0.8 + 0.2 * cos((xPos + float3(0, 0.33, 0.66)) * 6.28);
     color *= mask;
 
     // --------------------------------------------------------
-    // 6. BLOOM & VIGNETTE
+    // 6. DIAGONAL BLOOM
     // --------------------------------------------------------
     float2 pixelSize = 1.0 / Resolution;
-    float3 glow = 0;
-    glow += shaderTexture.Sample(samplerState, curvedUV + float2(-pixelSize.x, 0)).rgb;
-    glow += shaderTexture.Sample(samplerState, curvedUV + float2(pixelSize.x, 0)).rgb;
-    glow += shaderTexture.Sample(samplerState, curvedUV + float2(0, -pixelSize.y)).rgb;
-    glow += shaderTexture.Sample(samplerState, curvedUV + float2(0, pixelSize.y)).rgb;
+    float3 glow = shaderTexture.Sample(samplerState, curvedUV + (pixelSize * 1.5)).rgb;
+    glow += shaderTexture.Sample(samplerState, curvedUV - (pixelSize * 1.5)).rgb;
     
-    color += (glow * 0.25 * pulse); 
+    color += (glow * 0.2 * pulse); 
 
+    // --------------------------------------------------------
+    // 7. FINAL POST-PROCESS
+    // --------------------------------------------------------
     // Vignette
     float vignette = curvedUV.x * curvedUV.y * (1.0 - curvedUV.x) * (1.0 - curvedUV.y);
     vignette = saturate(pow(16.0 * vignette, 0.15)); 
     
-    // --------------------------------------------------------
-    // 7. POST-PROCESS
-    // --------------------------------------------------------
+    // Flicker
     float flicker = 0.98 + 0.02 * sin(Time * 120.0);
-    float noise = (hash(curvedUV.x + (curvedUV.y * 100.0) + (Time * 10.0)) - 0.5) * 0.04;
+    
+    // IGN Grain
+    float noise = (InterleavedGradientNoise(curvedUV * Resolution + Time) - 0.5) * 0.05;
     
     color *= flicker;
     color += noise;
