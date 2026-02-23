@@ -13,61 +13,107 @@ Texture2D shaderTexture : register(t0);
 SamplerState samplerState : register(s0);
 
 cbuffer PixelShaderSettings : register(b0) {
-    float  Time;       // <--- The secret sauce
+    float  Time;
     float  Scale;
     float2 Resolution;
     float4 Background;
 };
 
-float4 main(float4 position : SV_Position, float2 uv : TEXCOORD) : SV_Target {
-    // 1. Base Brightness (Keep it high contrast)
-    float4 baseColor = shaderTexture.Sample(samplerState, uv) * 1.15;
-    
-    // 2. Chromatic Aberration
-    float2 centerDist = uv - 0.5;
-    float aberrationAmt = dot(centerDist, centerDist) * 0.0015;
-    
-    float3 color;
-    color.r = shaderTexture.Sample(samplerState, uv + float2(aberrationAmt, 0)).r;
-    color.g = baseColor.g;
-    color.b = shaderTexture.Sample(samplerState, uv - float2(aberrationAmt, 0)).b;
+// --------------------------------------------------------
+// HELPER: Pseudo-Random Number Generator
+// --------------------------------------------------------
+float hash(float n) {
+    return frac(sin(n) * 43758.5453123);
+}
 
-    // 3. PULSING Scanlines
-    // We use Time to create a slow "breathing" factor
-    // sin(Time * 1.5) creates a cycle roughly every 4 seconds.
-    // The range 0.8 to 1.2 varies the intensity by +/- 20%.
-    float pulse = 1.0 + (0.2 * sin(Time * 1.5));
+float4 main(float4 position : SV_Position, float2 uv : TEXCOORD) : SV_Target {
+    // --------------------------------------------------------
+    // 1. CURVATURE (Barrel Distortion)
+    // --------------------------------------------------------
+    float2 centeredUV = uv * 2.0 - 1.0;
     
-    // Calculate vertical scanline position
-    float scanline = sin(uv.y * Resolution.y * 3.14159);
+    // Adjust curvature (Higher numbers = flatter screen)
+    float2 offset = abs(centeredUV.yx) / float2(5.0, 4.0); 
+    centeredUV = centeredUV + centeredUV * offset * offset;
+    float2 curvedUV = centeredUV * 0.5 + 0.5;
+
+    // Hard Bezel (Black void outside glass)
+    if (curvedUV.x < 0.0 || curvedUV.x > 1.0 || curvedUV.y < 0.0 || curvedUV.y > 1.0) {
+        return float4(0, 0, 0, 1);
+    }
+
+    // --------------------------------------------------------
+    // 2. RANDOMIZED HORIZONTAL JITTER (The "Bad Cable" Effect)
+    // --------------------------------------------------------
+    // Divide time into 0.125 second "blocks" (8 times per second)
+    float timeBlock = floor(Time * 8.0);
+    
+    // Get a static random number (0.0 to 1.0) for this specific block
+    float diceRoll = hash(timeBlock);
+    
+    // Trigger glitch only if we roll > 0.999
+    float isGlitching = step(0.999, diceRoll);
+    
+    // If triggered, shake violently using high-frequency sine
+    float jitter = isGlitching * sin(Time * 250.0) * 0.003;
+    
+    // --------------------------------------------------------
+    // 3. COLOR SAMPLING & ABERRATION
+    // --------------------------------------------------------
+    float2 centerDist = curvedUV - 0.5;
+    float aberrationAmt = dot(centerDist, centerDist) * 0.0025;
+    
+    // Boost brightness (1.35) to cut through the masks
+    float3 color;
+    color.r = shaderTexture.Sample(samplerState, curvedUV + float2(aberrationAmt + jitter, 0)).r * 1.35;
+    color.g = shaderTexture.Sample(samplerState, curvedUV + float2(jitter, 0)).g * 1.35;
+    color.b = shaderTexture.Sample(samplerState, curvedUV - float2(aberrationAmt - jitter, 0)).b * 1.35;
+
+    // --------------------------------------------------------
+    // 4. PULSING SCANLINES
+    // --------------------------------------------------------
+    float pulse = 1.0 + (0.15 * sin(Time * 1.2)); 
+    
+    // Use CURVED UVs
+    float scanline = sin(curvedUV.y * Resolution.y * 3.14159);
     scanline = 0.5 + 0.5 * scanline;
     
-    // Determine how dark the scanlines should be based on content brightness
     float brightness = dot(color, float3(0.299, 0.587, 0.114));
-    
-    // APPLY PULSE: The base darkness (0.08) is multiplied by our pulse
-    float dynamicDarkness = 0.08 * pulse;
+    float dynamicDarkness = 0.08 * pulse; 
     
     float scanlineIntensity = lerp(dynamicDarkness, 0.0, brightness); 
     color -= scanlineIntensity * scanline;
 
-    // 4. Additive Bloom (Glow)
+    // --------------------------------------------------------
+    // 5. RGB SUBPIXEL MASK (Aperture Grille)
+    // --------------------------------------------------------
+    float xPos = curvedUV.x * Resolution.x;
+    float3 mask = float3(1.0, 1.0, 1.0);
+    
+    // Trinitron-style vertical stripes
+    mask.r = 0.8 + 0.2 * cos(xPos * 3.14159 * 2.0); 
+    mask.g = 0.8 + 0.2 * cos((xPos + 0.33) * 3.14159 * 2.0);
+    mask.b = 0.8 + 0.2 * cos((xPos + 0.66) * 3.14159 * 2.0);
+    
+    color *= mask;
+
+    // --------------------------------------------------------
+    // 6. BLOOM & VIGNETTE
+    // --------------------------------------------------------
     float2 pixelSize = 1.0 / Resolution;
     float3 glow = 0;
+    glow += shaderTexture.Sample(samplerState, curvedUV + float2(-pixelSize.x, 0)).rgb;
+    glow += shaderTexture.Sample(samplerState, curvedUV + float2(pixelSize.x, 0)).rgb;
+    glow += shaderTexture.Sample(samplerState, curvedUV + float2(0, -pixelSize.y)).rgb;
+    glow += shaderTexture.Sample(samplerState, curvedUV + float2(0, pixelSize.y)).rgb;
     
-    glow += shaderTexture.Sample(samplerState, uv + float2(-pixelSize.x, 0)).rgb;
-    glow += shaderTexture.Sample(samplerState, uv + float2(pixelSize.x, 0)).rgb;
-    glow += shaderTexture.Sample(samplerState, uv + float2(0, -pixelSize.y)).rgb;
-    glow += shaderTexture.Sample(samplerState, uv + float2(0, pixelSize.y)).rgb;
-    
-    // Add subtle glow (scaled slightly by pulse too for consistency)
-    color += (glow * 0.18 * pulse);
+    color += (glow * 0.25 * pulse); 
 
-    // 5. Vignette
-    float vignette = uv.x * uv.y * (1.0 - uv.x) * (1.0 - uv.y);
+    // Vignette
+    float vignette = curvedUV.x * curvedUV.y * (1.0 - curvedUV.x) * (1.0 - curvedUV.y);
     vignette = saturate(pow(16.0 * vignette, 0.15)); 
-    
-    return float4(saturate(color * vignette), baseColor.a);
+
+    return float4(saturate(color * vignette), 1.0);
 }
 """
 
