@@ -25,7 +25,31 @@ opt.ignorecase = true
 opt.smartcase = true
 
 if is_windows then
+    -- Set shell to powershell
     opt.shell = "powershell.exe"
+
+    -- This specific block fixes the XML/EntityName/Node errors
+    opt.shellcmdflag =
+    "-NoLogo -ExecutionPolicy RemoteSigned -Command [Console]::InputEncoding=[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;"
+    opt.shellquote = ""
+    opt.shellxquote = ""
+    opt.shellpipe = "| Out-File -Encoding UTF8 %s"
+    opt.shellredir = "2>&1 | Out-File -Encoding UTF8 %s"
+end
+
+-- ==========================================================================
+-- SMART PYTHON VENV DETECTION
+-- ==========================================================================
+local function get_python_path()
+    local venv_names = { ".venv", "venv", "env" }
+    for _, name in ipairs(venv_names) do
+        -- Use joinpath to handle slashes correctly for the OS
+        local python_bin = vim.fs.joinpath(vim.fn.getcwd(), name, "Scripts", "python.exe")
+        if vim.fn.executable(python_bin) == 1 then
+            return python_bin
+        end
+    end
+    return "python"
 end
 
 
@@ -116,6 +140,40 @@ keymap.set('i', '<right>', '<nop>')
 
 -- Preview Markdown with 'gp' (Get Preview)
 keymap.set('n', 'gp', ':Glow<CR>', { desc = 'Toggle Glow Markdown Preview' })
+
+
+-- Smart Run Code (F5)
+keymap.set('n', '<F5>', function()
+    vim.cmd("w") -- Save file
+    local ft = vim.bo.filetype
+    local ok, toggleterm = pcall(require, "toggleterm")
+    if not ok then return end
+
+    -- Use expand with '8' to get the short 8.3 path (removes spaces/special chars)
+    -- Or just use double quotes. Let's try double quotes with backslashes.
+    local raw_path = vim.fn.expand("%:p"):gsub("/", "\\")
+    local raw_python = get_python_path():gsub("/", "\\")
+
+    if ft == "python" then
+        -- We send the keys to the terminal as if you typed them.
+        -- This is the most compatible way on Windows.
+        local cmd = string.format('& "%s" "%s"', raw_python, raw_path)
+        toggleterm.exec(cmd)
+    elseif ft == "cpp" or ft == "c" then
+        local raw_output = vim.fn.expand("%:p:r"):gsub("/", "\\") .. ".exe"
+        local compiler = (ft == "cpp") and "clang++" or "clang"
+        local cmd = string.format('%s "%s" -o "%s" ; if ($?) { & "%s" }', compiler, raw_path, raw_output, raw_output)
+        toggleterm.exec(cmd)
+    elseif ft == "lua" then
+        vim.cmd("luafile %")
+        print("Lua script executed.")
+    else
+        print("No runner for: " .. ft)
+    end
+end, { desc = 'Save and Run Code' })
+
+-- Open a terminal on the right (Vertical Split)
+keymap.set('n', '<leader>tf', '<cmd>ToggleTerm direction=vertical size=60<cr>', { desc = 'Terminal Right' })
 
 -- ==========================================================================
 -- BOOTSTRAP LAZY.NVIM
@@ -226,6 +284,7 @@ require("lazy").setup({
                             autoSearchPaths = true,
                             diagnosticMode = "openFilesOnly",
                             typeCheckingMode = "basic",
+                            pythonPath = get_python_path(),
                         },
                     },
                 },
@@ -494,6 +553,9 @@ require("lazy").setup({
             toggleterm.setup({
                 direction = 'horizontal',
                 size = 15,
+                close_on_exit = false,
+                auto_scroll = true,
+                persist_mode = false,
                 shell = is_windows and "powershell.exe" or vim.o.shell,
             })
         end,
@@ -508,4 +570,21 @@ require("lazy").setup({
         cmd = "Glow",
         -- This ensures it only loads when you actually want to preview
     }
+})
+
+-- Allow escaping terminal with ESC and navigating with Ctrl-hjkl
+function _G.set_terminal_keymaps()
+    local opts = { buffer = 0 }
+    vim.keymap.set('t', '<esc>', [[<C-\><C-n>]], opts)
+    vim.keymap.set('t', '<C-h>', [[<C-\><C-n><C-w>h]], opts)
+    vim.keymap.set('t', '<C-j>', [[<C-\><C-n><C-w>j]], opts)
+    vim.keymap.set('t', '<C-k>', [[<C-\><C-n><C-w>k]], opts)
+    vim.keymap.set('t', '<C-l>', [[<C-\><C-n><C-w>l]], opts)
+end
+
+vim.api.nvim_create_autocmd("TermOpen", {
+    pattern = "term://*",
+    callback = function()
+        set_terminal_keymaps()
+    end,
 })
