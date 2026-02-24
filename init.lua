@@ -412,6 +412,8 @@ require("lazy").setup({
             })
             vim.lsp.enable('clangd')
 
+            vim.lsp.inlay_hint.enable(true)
+
             -- Lua
             vim.lsp.config('lua_ls', {
                 capabilities = capabilities,
@@ -775,6 +777,31 @@ require("lazy").setup({
             })
         end
     },
+    -- TODO Comments
+    {
+        "folke/todo-comments.nvim",
+        dependencies = { "nvim-lua/plenary.nvim" },
+        config = function()
+            local ok, todo = pcall(require, "todo-comments")
+            if ok then
+                todo.setup({
+                    -- The default signs look great, but you can
+                    -- tweak them here if the CRT bloom makes them too "glowy"
+                    highlight = {
+                        multiline = true,
+                        before = "",      -- "fg" or "bg" or empty
+                        keyword = "wide", -- "fg", "bg", "wide"
+                        after = "fg",
+                    },
+                })
+            end
+        end,
+        keys = {
+            { "<leader>td", "<cmd>TodoTelescope<cr>",                            desc = "Search TODOs" },
+            { "]t",         function() require("todo-comments").jump_next() end, desc = "Next TODO" },
+            { "[t",         function() require("todo-comments").jump_prev() end, desc = "Prev TODO" },
+        }
+    },
 })
 
 -- Allow escaping terminal with ESC and navigating with Ctrl-hjkl
@@ -826,3 +853,85 @@ end, { desc = "Write string to register (Use uppercase like 'A' to append)" })
 vim.api.nvim_set_hl(0, "LspReferenceText", { link = "Visual" })
 vim.api.nvim_set_hl(0, "LspReferenceRead", { link = "Visual" })
 vim.api.nvim_set_hl(0, "LspReferenceWrite", { underline = true, bold = true, sp = "Yellow" })
+
+
+-- ==========================================================================
+-- AUTO-START CLICKER DAEMON
+-- ==========================================================================
+local function start_clicker()
+    -- Get the path to your nvim config folder
+    local nvim_dir = vim.fn.stdpath("config")
+    -- Path to your compiled binary
+    local clicker_path = nvim_dir .. "\\build\\clicker.exe"
+
+    -- Check if it actually exists before trying to run it
+    if vim.fn.executable(clicker_path) == 1 then
+        -- Start the process in the background
+        -- 'detach = true' keeps it running even if Neovim reloads
+        -- 'hide = true' ensures no annoying console window pops up
+        vim.fn.jobstart({ clicker_path }, {
+            detach = true,
+            hide = true,
+            on_exit = function()
+                print("Clicker Daemon stopped.")
+            end
+        })
+    else
+        vim.notify("Clicker binary not found at: " .. clicker_path, vim.log.levels.WARN)
+    end
+end
+
+-- Run it on startup
+start_clicker()
+
+
+-- ==========================================================================
+-- AUDIO BRIDGE (CRT CLACK)
+-- ==========================================================================
+local function send_clack(char)
+    local pipe_path = "\\\\.\\pipe\\nvim_clack"
+
+    -- Using libuv for a non-blocking "fire and forget" pipe write.
+    -- This ensures your typing remains 100% fluid regardless of sound latency.
+    vim.uv.fs_open(pipe_path, "w", 438, function(err, fd)
+        if not err and fd then
+            vim.uv.fs_write(fd, char, nil, function()
+                vim.uv.fs_close(fd)
+            end)
+        end
+    end)
+end
+
+local clack_group = vim.api.nvim_create_augroup("ClackGroup", { clear = true })
+
+-- 1. Normal Typing: Sends 's' for space, 'k' for everything else
+vim.api.nvim_create_autocmd("InsertCharPre", {
+    group = clack_group,
+    callback = function()
+        if vim.v.char == " " then
+            send_clack("s")
+        else
+            send_clack("k")
+        end
+    end,
+})
+
+-- 2. Enter Key: Sends 'e'
+vim.keymap.set('i', '<CR>', function()
+    send_clack("e")
+    return "<CR>"
+end, { expr = true })
+
+-- 3. Backspace: Sends 'k' (or 's' if you prefer a lighter clack)
+vim.keymap.set('i', '<BS>', function()
+    send_clack("k")
+    return "<BS>"
+end, { expr = true })
+
+-- 4. Save Sound: Sends 'e' when you save the file
+vim.api.nvim_create_autocmd("BufWritePost", {
+    group = clack_group,
+    callback = function()
+        send_clack("e")
+    end,
+})

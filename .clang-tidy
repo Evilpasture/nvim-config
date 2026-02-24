@@ -1,0 +1,30 @@
+---
+# Enable all checks by default, then selectively disable the noisy ones
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+  -readability-identifier-naming,
+  -readability-braces-around-statements,
+  -modernize-use-trailing-return-type,
+  -bugprone-reserved-identifier,
+  -readability-isolated-declaration
+
+# Treat all warnings as errors to keep the CRT-spirit "Uncompromising"
+WarningsAsErrors: "*"
+
+CheckOptions:
+  # Ensure we are using nullptr instead of the old NULL macro
+  - key:             modernize-use-nullptr.NullMacros
+    value:           'NULL'
+
+# Don't lint the Windows SDK headers (it's a rabbit hole of warnings)
+HeaderFilterRegex: 'clicker\.c'
+
+# Formatting tweaks for the tidy suggestions
+FormatStyle: file
+---

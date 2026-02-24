@@ -111,6 +111,7 @@ function prompt {
 
 # Aliases
 Set-Alias v nvim
+function kill-clicker {Stop-Process -Name clicker}
 function reload { . $PROFILE }
 function dash { Show-Dashboard }
 function activate {
