@@ -24,6 +24,8 @@ cbuffer PixelShaderSettings : register(b0) {
 // ============================================================
 // Increase to taste. At 0.0 aberration is disabled entirely.
 static const float ABERRATION_SCALE   = 0.0018;
+// Sub-pixel sampling distance (fraction of a pixel). 0.333 simulates RGB stripe.
+static const float SUBPIXEL_SHIFT     = 0.333;
 // Sub-pixel jitter during rare glitch events
 static const float GLITCH_JITTER      = 0.002;
 // How much the aperture grille darkens (0 = off, 0.2 = subtle)
@@ -117,11 +119,13 @@ float4 main(float4 position : SV_Position, float2 uv : TEXCOORD) : SV_Target {
     sampleUV.x += interference * (0.3 + microTremor * 10.0);
 
     // ----------------------------------------------------------
-    // 4. SAMPLING & CHROMATIC ABERRATION
+    // 4. SAMPLING, CHROMATIC ABERRATION & SUB-PIXEL SAMPLING
     //
     //    aberrationAmt is kept small enough that center-screen
     //    text (centerDist ≈ 0) is essentially unaffected. It grows
     //    toward corners and during magnetic events.
+    //    Sub-pixel sampling offsets the R and B taps by a fraction
+    //    of a physical pixel to simulate an RGB screen matrix.
     // ----------------------------------------------------------
 
     // Rare full-frame glitch event (~1% of 8Hz ticks)
@@ -139,12 +143,19 @@ float4 main(float4 position : SV_Position, float2 uv : TEXCOORD) : SV_Target {
         aberrationAmt += (1.0 - degaussTime) * 0.03;
     }
 
-    // 3-tap RGB split (R left, G center, B right)
+    // Sub-pixel offset calculation based on actual screen resolution
+    float spShift = (1.0 / Resolution.x) * SUBPIXEL_SHIFT;
+
+    // 3-tap RGB split: R physically left, G center, B physically right
+    float2 offsetR = float2( aberrationAmt + jitter - spShift, 0.0);
+    float2 offsetG = float2( jitter,                           0.0);
+    float2 offsetB = float2(-aberrationAmt + jitter + spShift, 0.0);
+
     float3 color;
-    color.r = shaderTexture.Sample(samplerState, sampleUV + float2( aberrationAmt + jitter, 0)).r;
-    float4 centerTap = shaderTexture.Sample(samplerState, sampleUV + float2(jitter, 0));
+    color.r = shaderTexture.Sample(samplerState, sampleUV + offsetR).r;
+    float4 centerTap = shaderTexture.Sample(samplerState, sampleUV + offsetG);
     color.g = centerTap.g;
-    color.b = shaderTexture.Sample(samplerState, sampleUV - float2( aberrationAmt - jitter, 0)).b;
+    color.b = shaderTexture.Sample(samplerState, sampleUV + offsetB).b;
 
     float alpha = centerTap.a;
 
