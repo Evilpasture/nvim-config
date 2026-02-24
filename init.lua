@@ -141,6 +141,8 @@ keymap.set('i', '<right>', '<nop>')
 -- Preview Markdown with 'gp' (Get Preview)
 keymap.set('n', 'gp', ':Glow<CR>', { desc = 'Toggle Glow Markdown Preview' })
 
+-- Reset highlight when switching to Normal Mode
+keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR><Esc>')
 
 -- Smart Run Code (F5)
 keymap.set('n', '<F5>', function()
@@ -243,6 +245,13 @@ require("lazy").setup({
                         local winid = vim.diagnostic.open_float(nil, { focusable = false, scope = "cursor" })
                         if not winid then vim.lsp.buf.hover() end
                     end, opts)
+                    -- Quick Fix: Automatically apply the first available code action
+                    vim.keymap.set('n', '<leader>f', function()
+                        vim.lsp.buf.code_action({
+                            context = { only = { "quickfix", "refactor", "rewrite" } },
+                            apply = true,
+                        })
+                    end, opts)
                 end,
             })
 
@@ -251,7 +260,18 @@ require("lazy").setup({
             -- ==========================================
 
             -- Clangd
-            vim.lsp.config('clangd', { capabilities = capabilities })
+            vim.lsp.config('clangd', {
+                capabilities = capabilities,
+                cmd = {
+                    "clangd",
+                    "--background-index",
+                    "--clang-tidy", -- This enables Clang-Tidy engine
+                    "--header-insertion=iwyu",
+                    "--completion-style=detailed",
+                    "--function-arg-placeholders",
+                    "--fallback-style=llvm",
+                },
+            })
             vim.lsp.enable('clangd')
 
             -- Lua
@@ -262,7 +282,7 @@ require("lazy").setup({
                         completion = { callSnippet = "Replace" },
                         diagnostics = {
                             disable = { "missing-fields" },
-                            globals = { "vim" }, -- <--- ADD THIS LINE
+                            globals = { "vim" },
                         },
                         -- Optional but highly recommended:
                         -- Tells lua_ls where the rest of Neovim's source code is
@@ -457,9 +477,15 @@ require("lazy").setup({
         name = "catppuccin",
         priority = 1000,
         config = function()
-            -- Defensive: check if catppuccin loads, then apply
-            local ok = pcall(require, "catppuccin")
+            local ok, cp = pcall(require, "catppuccin")
             if ok then
+                cp.setup({
+                    integrations = {
+                        treesitter = true,
+                        rainbow_delimiters = true, -- <--- ADD THIS LINE
+                        -- other integrations...
+                    }
+                })
                 vim.cmd.colorscheme "catppuccin"
             end
         end
@@ -569,7 +595,34 @@ require("lazy").setup({
         config = true,
         cmd = "Glow",
         -- This ensures it only loads when you actually want to preview
-    }
+    },
+
+    -- Rainbow Delimiters
+    {
+        "hiphish/rainbow-delimiters.nvim",
+        dependencies = "nvim-treesitter/nvim-treesitter",
+        config = function()
+            local rb = require('rainbow-delimiters')
+            require('rainbow-delimiters.setup').setup({
+                strategy = {
+                    [''] = rb.strategy['global'], -- Use global strategy by default
+                },
+                query = {
+                    [''] = 'rainbow-delimiters',
+                    ['lua'] = 'rainbow-blocks',
+                },
+                highlight = {
+                    'RainbowDelimiterRed',
+                    'RainbowDelimiterYellow',
+                    'RainbowDelimiterBlue',
+                    'RainbowDelimiterOrange',
+                    'RainbowDelimiterGreen',
+                    'RainbowDelimiterViolet',
+                    'RainbowDelimiterCyan',
+                },
+            })
+        end
+    },
 })
 
 -- Allow escaping terminal with ESC and navigating with Ctrl-hjkl
