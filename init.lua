@@ -24,6 +24,15 @@ opt.mousemoveevent = true -- Enable mouse hover events
 opt.ignorecase = true
 opt.smartcase = true
 
+-- Force block cursor in all modes.
+-- Thick blocks glow beautifully with the CRT bloom and don't get hidden by scanlines.
+opt.guicursor = "n-v-c-sm:block,i-ci-ve:block,r-cr-o:block"
+opt.sidescrolloff = 8 -- Keeps text away from the left/right curved glass edges
+
+-- Replaces the default '~' on empty lines with a blank space
+-- Makes the empty part of the screen look like an unlit CRT tube
+opt.fillchars = { eob = " " }
+
 if is_windows then
     -- Set shell to powershell
     opt.shell = "powershell.exe"
@@ -609,10 +618,12 @@ require("lazy").setup({
             local ok, cp = pcall(require, "catppuccin")
             if ok then
                 cp.setup({
+                    transparent_background = true, -- <--- LETS THE CRT SHADER BREATHE
                     integrations = {
                         treesitter = true,
                         rainbow_delimiters = true,
-                        -- TODO: other integrations...
+                        telescope = true,
+                        mason = true,
                     }
                 })
                 vim.cmd.colorscheme "catppuccin"
@@ -632,7 +643,19 @@ require("lazy").setup({
         config = function()
             local ok, lualine = pcall(require, 'lualine')
             if ok then
-                lualine.setup({ options = { theme = 'catppuccin' } })
+                lualine.setup({
+                    options = {
+                        theme = 'catppuccin',
+                        component_separators = '|',
+                        section_separators = { left = '', right = '' },
+                    },
+                    sections = {
+                        -- Add empty strings to the extreme edges to push content inward
+                        -- away from the CRT curvature
+                        lualine_a = { function() return ' ' end, 'mode' },
+                        lualine_z = { 'location', function() return ' ' end }
+                    }
+                })
             end
         end
     },
