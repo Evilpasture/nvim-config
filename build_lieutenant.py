@@ -67,7 +67,23 @@ def build_and_start():
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
     time.sleep(0.5) # Wait for Windows to release file handles
-
+    if not os.path.exists(os.path.join(build_dir, "CMakeCache.txt")):
+        print("[*] Initializing CMake configuration (Clang + Ninja)...")
+        os.makedirs(build_dir, exist_ok=True)
+        
+        # Explicitly pointing to clang-cl and Ninja
+        config_cmd = [
+            "cmake", "-S", ".", "-B", build_dir,
+            "-G", "Ninja",
+            "-DCMAKE_C_COMPILER=clang", # or "clang" depending on your PATH
+            "-DCMAKE_BUILD_TYPE=Release"
+        ]
+        
+        config_result = subprocess.run(config_cmd)
+        if config_result.returncode != 0:
+            print("[!] Configuration FAILED. Ensure Ninja and Clang are in your PATH.")
+            sys.exit(1)
+    # -------------------------------
     print("[*] Running CMake build...")
     build_result = subprocess.run(["cmake", "--build", build_dir, "--config", "Release"])
 

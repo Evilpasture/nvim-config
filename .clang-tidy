@@ -6,11 +6,15 @@ Checks: >
   clang-analyzer-*,
   misc-*,
   modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-use-using,            # C++ only
+  -modernize-use-auto,             # C++ only
+  -modernize-use-override,         # C++ only
+  -modernize-avoid-c-arrays,       # In C, we LIKE arrays
   performance-*,
   readability-*,
   -readability-identifier-naming,
   -readability-braces-around-statements,
-  -modernize-use-trailing-return-type,
   -bugprone-reserved-identifier,
   -readability-isolated-declaration
 
@@ -18,9 +22,11 @@ Checks: >
 WarningsAsErrors: "*"
 
 CheckOptions:
-  # Ensure we are using nullptr instead of the old NULL macro
   - key:             modernize-use-nullptr.NullMacros
     value:           'NULL'
+  # Silence the C++ cast suggestion specifically
+  - key:             readability-casting.AllowGlobals
+    value:           'true'
 
 # Don't lint the Windows SDK headers (it's a rabbit hole of warnings)
 HeaderFilterRegex: 'clicker\.c'

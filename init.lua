@@ -102,7 +102,7 @@ vim.g.mapleader = " "
 local keymap = vim.keymap
 
 -- File Operations
-keymap.set('n', '<leader>w', ':w<CR>', { desc = 'Save File' })
+-- The Earthquake Save
 keymap.set('n', '<leader>q', ':q<CR>', { desc = 'Quit Neovim' })
 keymap.set('n', '<c-s>', ':w<CR>')
 keymap.set('i', '<c-s>', '<Esc>:w<CR>a')
@@ -941,3 +941,9 @@ vim.api.nvim_create_autocmd("BufWritePost", {
         send_clack("e")
     end,
 })
+
+-- The Earthquake Save
+vim.keymap.set('n', '<leader>w', function()
+    vim.cmd("w")
+    send_clack("x") -- Send the explosion signal!
+end, { desc = 'Save File & Shake Screen' })
