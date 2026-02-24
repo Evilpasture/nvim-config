@@ -19,3 +19,6 @@ __pycache__/
 *.key
 *.token
 credentials.json
+
+# Other locals
+scripts/
