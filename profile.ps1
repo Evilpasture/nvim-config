@@ -113,6 +113,23 @@ function prompt {
 Set-Alias v nvim
 function reload { . $PROFILE }
 function dash { Show-Dashboard }
+function activate {
+    $venvPath = ".\.venv\Scripts\Activate.ps1"
+    
+    if (Test-Path $venvPath) {
+        & $venvPath
+        # Clean success message using your prompt's color palette
+        Write-Host "󱈸 " -NoNewline -ForegroundColor Cyan
+        Write-Host "Environment activated: " -NoNewline -ForegroundColor Gray
+        Write-Host ".venv" -ForegroundColor Green
+    } else {
+        # Graceful failure - no red text, just a helpful hint
+        Write-Host "󰋊 " -NoNewline -ForegroundColor Yellow
+        Write-Host "No .venv found in " -NoNewline -ForegroundColor Gray
+        Write-Host "$(Get-Location)" -ForegroundColor Magenta
+        Write-Host "Hint: Are you in the project root?" -ForegroundColor DarkGray
+    }
+}
 
 # Run dashboard on startup
 Show-Dashboard
