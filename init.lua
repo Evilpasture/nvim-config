@@ -82,6 +82,10 @@ vim.api.nvim_create_autocmd({ "FileType" }, {
 local function warn()
     print("Use HJKL. Please.")
 end
+
+local function warn_insert()
+    print("Go to Normal Mode.")
+end
 -- ==========================================================================
 -- KEYBINDINGS (Global)
 -- ==========================================================================
@@ -102,7 +106,15 @@ keymap.set('n', '<C-y>', '<C-r>', { desc = 'Redo' })
 keymap.set('n', '<C-a>', 'ggVG', { desc = 'Select All' })
 keymap.set('v', '<C-c>', '"+y', { desc = 'Copy' })
 keymap.set('v', '<C-x>', '"+d', { desc = 'Cut' })
+-- Normal Mode: Standard paste is fine
 keymap.set('n', '<C-v>', '"+p', { desc = 'Paste' })
+
+-- Visual Mode: The "Sticky" Paste
+-- 1. "_d  -> Delete selection into the black hole (trash it)
+-- 2. " +P -> Paste the system clipboard BEFORE the cursor's new position
+keymap.set('v', '<C-v>', '"_d"+P', { desc = 'Paste (Keep Clipboard)' })
+
+-- Insert Mode: Already handled by <C-r> which doesn't overwrite
 keymap.set('i', '<C-v>', '<C-r>+', { desc = 'Paste in Insert Mode' })
 
 -- IDE-style Tab Indenting
@@ -133,10 +145,10 @@ keymap.set('n', '<left>', warn)
 keymap.set('n', '<right>', warn)
 
 -- Disable Arrow keys in Insert mode (Force the escape habit)
-keymap.set('i', '<up>', '<nop>')
-keymap.set('i', '<down>', '<nop>')
-keymap.set('i', '<left>', '<nop>')
-keymap.set('i', '<right>', '<nop>')
+keymap.set('i', '<up>', warn_insert)
+keymap.set('i', '<down>', warn_insert)
+keymap.set('i', '<left>', warn_insert)
+keymap.set('i', '<right>', warn_insert)
 
 -- Preview Markdown with 'gp' (Get Preview)
 keymap.set('n', 'gp', ':Glow<CR>', { desc = 'Toggle Glow Markdown Preview' })
@@ -151,20 +163,30 @@ keymap.set('n', '<F5>', function()
     local ok, toggleterm = pcall(require, "toggleterm")
     if not ok then return end
 
-    -- Use expand with '8' to get the short 8.3 path (removes spaces/special chars)
-    -- Or just use double quotes. Let's try double quotes with backslashes.
-    local raw_path = vim.fn.expand("%:p"):gsub("/", "\\")
-    local raw_python = get_python_path():gsub("/", "\\")
+    -- Helper to make paths Windows/PowerShell safe
+    -- 1. Convert / to \
+    -- 2. Wrap in double quotes
+    local function wrap(path)
+        return '"' .. path:gsub("/", "\\") .. '"'
+    end
+
+    local raw_path = vim.fn.expand("%:p")
+    local path = wrap(raw_path)
+    local python = wrap(get_python_path())
 
     if ft == "python" then
-        -- We send the keys to the terminal as if you typed them.
-        -- This is the most compatible way on Windows.
-        local cmd = string.format('& "%s" "%s"', raw_python, raw_path)
+        -- The '&' is the PowerShell call operator.
+        -- It is MANDATORY when the command (python path) is a quoted string.
+        local cmd = string.format('& %s %s', python, path)
         toggleterm.exec(cmd)
     elseif ft == "cpp" or ft == "c" then
-        local raw_output = vim.fn.expand("%:p:r"):gsub("/", "\\") .. ".exe"
+        -- Get the executable path by removing the extension and adding .exe
+        local raw_exe = vim.fn.expand("%:p:r") .. ".exe"
+        local exe = wrap(raw_exe)
         local compiler = (ft == "cpp") and "clang++" or "clang"
-        local cmd = string.format('%s "%s" -o "%s" ; if ($?) { & "%s" }', compiler, raw_path, raw_output, raw_output)
+
+        -- The logic: Compile, and IF (and only if) successful ($?), run the exe
+        local cmd = string.format('%s %s -o %s ; if ($?) { & %s }', compiler, path, exe, exe)
         toggleterm.exec(cmd)
     elseif ft == "lua" then
         vim.cmd("luafile %")
@@ -246,12 +268,119 @@ require("lazy").setup({
                         if not winid then vim.lsp.buf.hover() end
                     end, opts)
                     -- Quick Fix: Automatically apply the first available code action
+                    -- Inside your LspAttach callback block
                     vim.keymap.set('n', '<leader>f', function()
-                        vim.lsp.buf.code_action({
-                            context = { only = { "quickfix", "refactor", "rewrite" } },
-                            apply = true,
+                        local line = vim.fn.line('.') - 1
+                        local bufnr = vim.api.nvim_get_current_buf()
+
+                        -- 1. Get Neovim diagnostics for the current line
+                        local line_diagnostics = vim.diagnostic.get(bufnr, { lnum = line })
+
+                        -- 2. Convert Neovim diagnostics to LSP-compatible diagnostics
+                        local lsp_diagnostics = {}
+                        for _, d in ipairs(line_diagnostics) do
+                            -- Neovim stores the original LSP diagnostic in user_data
+                            if d.user_data and d.user_data.lsp_diagnostic then
+                                table.insert(lsp_diagnostics, d.user_data.lsp_diagnostic)
+                            else
+                                -- Fallback: manually reconstruct if user_data is missing
+                                table.insert(lsp_diagnostics, {
+                                    range = {
+                                        start = { line = d.lnum, character = d.col },
+                                        ["end"] = { line = d.end_lnum, character = d.end_col },
+                                    },
+                                    severity = d.severity,
+                                    message = d.message,
+                                    source = d.source or "clangd",
+                                    code = d.code,
+                                })
+                            end
+                        end
+
+                        -- 3. Construct the request with a range covering the line
+                        local params = {
+                            textDocument = vim.lsp.util.make_text_document_params(),
+                            range = {
+                                start = { line = line, character = 0 },
+                                ["end"] = { line = line, character = 1000 }, -- Cover the whole line
+                            },
+                            context = {
+                                diagnostics = lsp_diagnostics -- Now correctly formatted
+                            }
+                        }
+
+                        vim.lsp.buf_request(0, 'textDocument/codeAction', params, function(err, result, ctx, _)
+                            if err or not result or vim.tbl_isempty(result) then
+                                vim.notify("No fixes available on this line.", vim.log.levels.WARN)
+                                return
+                            end
+
+                            local actions = {}
+                            for _, item in ipairs(result) do
+                                table.insert(actions, item.action or item)
+                            end
+
+                            local function get_priority(action)
+                                local title = (action.title or ""):lower()
+                                local kind = action.kind or ""
+                                if title:match("designated") then return 10 end
+                                if title:match("include") then return 9 end
+                                if action.isPreferred then return 8 end
+                                if kind:match("quickfix") then return 7 end
+                                return 1
+                            end
+
+                            table.sort(actions, function(a, b)
+                                return get_priority(a) > get_priority(b)
+                            end)
+
+                            local choice = actions[1]
+                            local applied = false
+
+                            if choice.edit then
+                                vim.lsp.util.apply_workspace_edit(choice.edit, "utf-8")
+                                applied = true
+                            end
+
+                            if choice.command then
+                                local cmd = type(choice.command) == "table" and choice.command or choice
+                                pcall(vim.lsp.buf.execute_command, cmd)
+                                applied = true
+                            end
+
+                            if not applied then
+                                pcall(vim.lsp.buf.execute_command, choice)
+                            end
+
+                            vim.notify("Sentience Applied: " .. choice.title, vim.log.levels.INFO)
+                        end)
+                    end, { buffer = event.buf, desc = "Super Strong Auto-fix" })
+                    local client = vim.lsp.get_client_by_id(event.data.client_id)
+                    if client and client.supports_method('textDocument/documentHighlight') then
+                        local group = vim.api.nvim_create_augroup('lsp-highlight', { clear = false })
+
+                        -- Clear existing highlights before setting new ones
+                        vim.api.nvim_create_autocmd({ 'CursorHold', 'CursorHoldI' }, {
+                            buffer = event.buf,
+                            group = group,
+                            callback = vim.lsp.buf.document_highlight,
                         })
-                    end, opts)
+
+                        vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
+                            buffer = event.buf,
+                            group = group,
+                            callback = vim.lsp.buf.clear_references,
+                        })
+
+                        -- Optional: Clear highlights when the LSP leaves the buffer
+                        vim.api.nvim_create_autocmd('LspDetach', {
+                            group = vim.api.nvim_create_augroup('lsp-detach', { clear = true }),
+                            callback = function(event2)
+                                vim.lsp.buf.clear_references()
+                                vim.api.nvim_clear_autocmds({ group = 'lsp-highlight', buffer = event2.buf })
+                            end,
+                        })
+                    end
                 end,
             })
 
@@ -482,8 +611,8 @@ require("lazy").setup({
                 cp.setup({
                     integrations = {
                         treesitter = true,
-                        rainbow_delimiters = true, -- <--- ADD THIS LINE
-                        -- other integrations...
+                        rainbow_delimiters = true,
+                        -- TODO: other integrations...
                     }
                 })
                 vim.cmd.colorscheme "catppuccin"
@@ -528,7 +657,7 @@ require("lazy").setup({
     {
         'nvim-telescope/telescope.nvim',
         dependencies = { 'nvim-lua/plenary.nvim' },
-        branch = '0.1.x',
+        branch = 'master',
         config = function()
             local ok, telescope = pcall(require, "telescope")
             if not ok then return end
@@ -641,3 +770,36 @@ vim.api.nvim_create_autocmd("TermOpen", {
         set_terminal_keymaps()
     end,
 })
+
+-- ==========================================================================
+-- UTILS
+-- ==========================================================================
+vim.keymap.set('n', '<leader>wr', function()
+    local reg = vim.v.register
+    -- Default to 'a' if no register was specified (indicated by double quote)
+    if reg == '"' then reg = 'a' end
+
+    vim.ui.input({ prompt = 'Write to Register (' .. reg .. '): ' }, function(input)
+        if input and input ~= "" then
+            -- 1. Check if it's a letter (%a)
+            -- 2. Check if it's uppercase
+            local is_letter = reg:match("%a")
+            local is_upper = reg == reg:upper()
+
+            -- Mode 'a' = append, 'c' = create/replace
+            local mode = (is_letter and is_upper) and "a" or "c"
+
+            vim.fn.setreg(reg, input, mode)
+
+            local action = mode == "a" and "Appended to @" or "Stored in @"
+            vim.notify(action .. reg .. ": " .. input, vim.log.levels.INFO)
+        end
+    end)
+end, { desc = "Write string to register (Use uppercase like 'A' to append)" })
+
+
+-- Link these to existing theme highlights so they look natural
+-- LspReferenceWrite usually implies the variable is being CHANGED.
+vim.api.nvim_set_hl(0, "LspReferenceText", { link = "Visual" })
+vim.api.nvim_set_hl(0, "LspReferenceRead", { link = "Visual" })
+vim.api.nvim_set_hl(0, "LspReferenceWrite", { underline = true, bold = true, sp = "Yellow" })
