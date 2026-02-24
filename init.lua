@@ -886,13 +886,19 @@ start_clicker()
 
 
 -- ==========================================================================
--- AUDIO BRIDGE (CRT CLACK)
+-- AUDIO BRIDGE (CRT CLACK) with DEBOUNCE
 -- ==========================================================================
-local function send_clack(char)
-    local pipe_path = "\\\\.\\pipe\\nvim_clack"
+local last_clack_time = 0
+local CLACK_COOLDOWN = 40 -- ms (Adjust this: lower = faster, higher = more "stiff")
 
-    -- Using libuv for a non-blocking "fire and forget" pipe write.
-    -- This ensures your typing remains 100% fluid regardless of sound latency.
+local function send_clack(char)
+    local now = vim.uv.now()
+    if (now - last_clack_time) < CLACK_COOLDOWN then
+        return -- Skip this clack, we're typing too fast!
+    end
+    last_clack_time = now
+
+    local pipe_path = "\\\\.\\pipe\\nvim_clack"
     vim.uv.fs_open(pipe_path, "w", 438, function(err, fd)
         if not err and fd then
             vim.uv.fs_write(fd, char, nil, function()
