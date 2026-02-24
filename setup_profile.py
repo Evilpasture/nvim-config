@@ -51,11 +51,21 @@ float4 main(float4 position : SV_Position, float2 uv : TEXCOORD) : SV_Target {
     // --------------------------------------------------------
     // 3. PHYSICAL DEFORMATIONS (The "Realism Patch")
     // --------------------------------------------------------
-    // 1. Occasional Tremor Logic
+    
+    // [A] DEGAUSS SHAKE (The physical thunk)
+    // Only fires for 1 second every minute, gated to not fire on startup
+    if (degaussTime < 1.0 && Time > 5.0) {
+        float decay = (1.0 - degaussTime);
+        float shakeX = sin(Time * 150.0) * decay * 0.01;
+        float shakeY = cos(Time * 140.0) * decay * 0.01;
+        sampleUV += float2(shakeX, shakeY);
+    }
+
+    // [B] Occasional Tremor Logic
     float randomSpike = pow(saturate(sin(Time * 0.7)), 40.0); 
     float microTremor = sin(Time * 150.0) * randomSpike;
 
-    // 2. Lazy Magnet (Subtle static warp)
+    // [C] Lazy Magnet (Subtle static warp)
     float2 magnetPos = float2(0.5, 0.5); 
     float distToMagnet = distance(curvedUV, magnetPos);
     float fieldPower = 0.02 / (distToMagnet + 0.01); 
@@ -65,13 +75,12 @@ float4 main(float4 position : SV_Position, float2 uv : TEXCOORD) : SV_Target {
     float magnetStrength = inField * (0.005 + (0.015 * microTremor)) * warmup;
     sampleUV += (magnetPos - sampleUV) * magnetStrength;
 
-    // 3. THE "STIFF" SIGNAL PATCH (Horizontal Hold Jitter)
-    // Snaps the jitter to scanline pairs to prevent "Jelly" feel.
+    // [D] THE "STIFF" SIGNAL PATCH (Horizontal Hold Jitter)
     float scanlineID = floor(curvedUV.y * Resolution.y * 0.5);
     float snap = frac(sin(scanlineID + floor(Time * 12.0)) * 43758.5453); 
-    float interference = (snap - 0.5) * 0.0004; // Extremely subtle
+    float interference = (snap - 0.5) * 0.0004; 
 
-    // Only apply noticeable jitter during a tremor or very faintly otherwise
+    // Text stays readable because jitter strength is strictly controlled
     sampleUV.x += interference * (0.3 + microTremor * 10.0);
 
     // --------------------------------------------------------
@@ -85,6 +94,11 @@ float4 main(float4 position : SV_Position, float2 uv : TEXCOORD) : SV_Target {
     float2 centerDist = curvedUV - 0.5;
     float aberrationAmt = dot(centerDist, centerDist) * 0.002;
     aberrationAmt += (magnetStrength * 1.5); 
+
+    // Degauss Color Flare
+    if (degaussTime < 1.0 && Time > 5.0) {
+        aberrationAmt += (1.0 - degaussTime) * 0.03;
+    }
 
     // 3-Tap Sampling
     float3 color;
@@ -109,7 +123,7 @@ float4 main(float4 position : SV_Position, float2 uv : TEXCOORD) : SV_Target {
     
     color -= scanlineIntensity * scanline;
 
-    // Aperture Grille (Tied to sampleUV to prevent Moiré)
+    // Aperture Grille
     float xPos = sampleUV.x * Resolution.x;
     float3 mask = 0.8 + 0.2 * cos((xPos + float3(0, 0.33, 0.66)) * 6.28);
     color *= mask;
@@ -125,20 +139,22 @@ float4 main(float4 position : SV_Position, float2 uv : TEXCOORD) : SV_Target {
     // --------------------------------------------------------
     // 7. FINAL POST-PROCESS
     // --------------------------------------------------------
-    // Physical Vignette
     float vignette = curvedUV.x * curvedUV.y * (1.0 - curvedUV.x) * (1.0 - curvedUV.y);
     vignette = saturate(pow(16.0 * vignette, 0.15)); 
     
-    // Slow hum shadow (brightness variation, not geometric)
     float humShadow = 1.0 - (sin(curvedUV.y * 5.0 - Time * 2.0) * 0.02);
     float flicker = (0.98 + 0.02 * sin(Time * 120.0)) * humShadow;
     
+    // Degauss Brightness Flash
+    if (degaussTime < 0.2 && Time > 5.0) {
+        flicker += (0.2 - degaussTime) * 2.0;
+    }
+
     float noise = (InterleavedGradientNoise(curvedUV * Resolution + Time) - 0.5) * 0.04;
     
     color *= flicker;
     color += noise;
 
-    // Fade alpha to opaque at corners to mask the gray terminal background
     float finalAlpha = lerp(1.0, alpha, vignette);
 
     return float4(saturate(color * vignette), finalAlpha);
