@@ -216,10 +216,6 @@ float4 main(float4 position : SV_Position, float2 uv : TEXCOORD) : SV_Target {
     // 8. FINAL POST-PROCESS
     // ----------------------------------------------------------
 
-    // CRT Cold-Start: Dim, blue-ish tint that fades out as the tube warms up
-    float3 coldTint = lerp(float3(0.6, 0.7, 0.9), float3(1.0, 1.0, 1.0), warmup);
-    color *= coldTint;
-
     // Vignette — darkens corners, exponent tuned for a wide bright center
     float vignette = curvedUV.x * curvedUV.y * (1.0 - curvedUV.x) * (1.0 - curvedUV.y);
     vignette       = saturate(pow(16.0 * vignette, 0.15));
