@@ -139,6 +139,111 @@ function nconf {
     $luaPath = ($HOME + "\AppData\Local\nvim").Replace("\", "/")
     nvim "+lua require('oil').open('$luaPath')"
 }
+
+# ==========================================================================
+# GITHUB PR TRACKER (Open & Closed)
+# ==========================================================================
+function Get-MyPRs {
+    param(
+        [Parameter(Mandatory=$false)]
+        [int]$Limit = 10
+    )
+
+    # 1. Theme Colors
+    $E = [char]27
+    $Reset     = "$E[0m"
+    $MutedMag  = "$E[38;5;170m"
+    $SoftGreen = "$E[38;5;78m"
+    $DeepCyan  = "$E[38;5;39m"
+    $SoftRed   = "$E[38;5;203m"
+    $DimGray   = "$E[38;5;240m"
+    $Gold      = "$E[38;5;214m"
+    $Cyan      = "$E[38;5;39m"
+    $White     = "$E[38;5;255m"
+
+    Write-Host "`n  $Gold RECENT PULL REQUESTS (Global)$Reset"
+    Write-Host "  $DimGray──────────────────────────────────────────────────────────────────────────────────────────$Reset"
+
+    # 2. Fetch data 
+    $rawJson = gh search prs --author "@me" --limit $Limit --json number,title,state,updatedAt,repository,author 2>$null
+    
+    if (-not $rawJson) {
+        Write-Host "  $DimGray (No PRs found or GitHub offline)$Reset"
+    } else {
+        $prs = $rawJson | ConvertFrom-Json
+        $myHandle = $prs[0].author.login # Get handle from the first result
+
+        $mergedCount = 0
+        foreach ($pr in $prs) {
+            # --- LOGIC: Authorship / Collaboration ---
+            $repoOwner = $pr.repository.nameWithOwner.Split('/')[0]
+            if ($pr.state -eq "MERGED") { $mergedCount++ }
+            
+            if ($repoOwner -eq $myHandle) {
+                $collabIcon = ""
+                $collabType = "Solo (@$myHandle)"
+            } else {
+                $collabIcon = ""
+                $collabType = "Contrib (@$repoOwner)"
+            }
+
+            # --- LINE 1: ID, REPO, TITLE ---
+            $id    = "#$($pr.number)".PadRight(6)
+            $repo  = "$($pr.repository.name)".ToUpper().PadRight(18)
+            $title = $pr.title 
+            
+            Write-Host "  $MutedMag$id$Reset $Cyan$repo$Reset $White$title$Reset"
+
+            # --- LINE 2: METADATA ---
+            $stateColor = switch ($pr.state) {
+                "OPEN"   { $SoftGreen }
+                "MERGED" { $DeepCyan }
+                default  { $SoftRed }
+            }
+            $state = $pr.state.ToLower().PadRight(7)
+            $date  = [DateTime]::Parse($pr.updatedAt).ToString("dd MMM yyyy")
+
+            # Indent exactly 9 spaces to align under Repo Name
+            Write-Host "         $stateColor$state$Reset" -NoNewline
+            Write-Host " $DimGray│  $collabIcon $collabType  │  $date$Reset"
+            Write-Host "" 
+        }
+        
+        # --- SUMMARY FOOTER ---
+        Write-Host "  $DimGray──────────────────────────────────────────────────────────────────────────────────────────$Reset"
+        Write-Host "  $DimGray$Reset$DeepCyan $mergedCount Merged PRs $Reset$DimGray$Reset $DimGray showing last $Limit$Reset"
+    }
+    Write-Host ""
+}
+
+# Alias for quick access
+Set-Alias prs Get-MyPRs
+
+# ==========================================================================
+# PROJECT JUMPER
+# ==========================================================================
+function p {
+    param($Name)
+    if (-not $Name) { Set-Location "E:\"; return }
+    
+    $BaseDir = "E:\Projects"
+    # Search for directories containing the string, sorted by last write time
+    $Match = Get-ChildItem $BaseDir -Directory | 
+             Where-Object { $_.Name -like "*$Name*" } | 
+             Sort-Object LastWriteTime -Descending | 
+             Select-Object -First 1
+
+    if ($Match) { 
+        Set-Location $Match.FullName
+        Write-Host "󱈸 Switching to: " -NoNewline -ForegroundColor Gray
+        Write-Host "$($Match.Name)" -ForegroundColor Cyan
+        v . 
+    }
+    else { 
+        Write-Host "󰅙 No project matching '$Name' found in $BaseDir" -ForegroundColor Red 
+    }
+}
+
 # Run dashboard on startup
 Show-Dashboard
 
