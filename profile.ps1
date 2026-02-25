@@ -131,7 +131,14 @@ function activate {
         Write-Host "Hint: Are you in the project root?" -ForegroundColor DarkGray
     }
 }
-
+function gohome {Set-Location $HOME\AppData\Local\nvim}
+function conf { nvim $HOME\AppData\Local\nvim\init.lua }
+# Or to open Oil in that dir:
+function nconf {
+    # Replace backslashes with forward slashes for Lua compatibility
+    $luaPath = ($HOME + "\AppData\Local\nvim").Replace("\", "/")
+    nvim "+lua require('oil').open('$luaPath')"
+}
 # Run dashboard on startup
 Show-Dashboard
 

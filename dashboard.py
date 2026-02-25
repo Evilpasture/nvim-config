@@ -2,195 +2,240 @@ import subprocess
 import platform
 import datetime
 import threading
-import os
 import shutil
-import sys
+import os
+from pathlib import Path
 
 # Try to import the manager, handle gracefully if missing
 try:
     from terminal_manager import TerminalManager
+
     HAS_MANAGER = True
 except ImportError:
     HAS_MANAGER = False
 
 # ==============================================================================
-# 1. THEME & CONSTANTS
+# 1. CONFIG & THEME
 # ==============================================================================
-# ANSI 256-Color Palette (Matches your Prompt)
+PROJECT_ROOT = Path("E:/")
+
 E = "\033["
 RESET = f"{E}0m"
-BOLD = f"{E}1m"
+C_GRAY = f"{E}38;5;240m"
+C_WHITE = f"{E}38;5;250m"
+C_CYAN = f"{E}38;5;39m"
+C_GOLD = f"{E}38;5;214m"
+C_GREEN = f"{E}38;5;78m"
+C_MAGENTA = f"{E}38;5;170m"
+C_RED = f"{E}38;5;196m"
 
-# Colors
-C_GRAY    = f"{E}38;5;240m"  # Dark Gray (Borders)
-C_WHITE   = f"{E}38;5;250m"  # Text
-C_CYAN    = f"{E}38;5;39m"   # Accents
-C_GOLD    = f"{E}38;5;214m"  # Warnings / Highlights
-C_GREEN   = f"{E}38;5;78m"   # Success
-C_MAGENTA = f"{E}38;5;170m"  # Git / Special
-
-# Icons (Nerd Font)
-ICON_OS   = ""
+ICON_OS = ""
 ICON_DISK = "󰋊"
-ICON_GIT  = ""
-ICON_PR   = ""
-ICON_BUG  = ""
+ICON_PR = ""
+ICON_BUG = ""
 ICON_TIME = ""
+ICON_DIR = ""
+ICON_WIFI = ""
+ICON_PLUG = ""
+
 
 # ==============================================================================
 # 2. HELPER FUNCTIONS
 # ==============================================================================
-def draw_bar(percent, width=20):
-    """Draws a progress bar using block characters"""
+def draw_bar(percent, width=15):
     fill_len = int(width * percent / 100)
     empty_len = width - fill_len
-    
-    # Color logic: Green -> Gold -> Red based on fullness
-    color = C_GREEN
-    if percent > 70: color = C_GOLD
-    if percent > 90: color = f"{E}38;5;196m" # Red
-    
-    bar = f"{color}{'█' * fill_len}{C_GRAY}{'░' * empty_len}{RESET}"
-    return f"{bar} {color}{percent}%{RESET}"
+    color = C_GREEN if percent < 75 else (C_GOLD if percent < 90 else C_RED)
+    return f"{color}{'█' * fill_len}{C_GRAY}{'░' * empty_len}{RESET} {color}{str(percent).rjust(3)}%{RESET}"
 
-def get_gh_data(command):
+
+def get_relative_time(timestamp):
+    delta = datetime.datetime.now().timestamp() - timestamp
+    if delta < 3600:
+        return f"{int(delta // 60)}m ago"
+    if delta < 84600:
+        return f"{int(delta // 3600)}h ago"
+    return f"{int(delta // 86400)}d ago"
+
+
+def check_connection():
     try:
-        # Run command and decode
-        output = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT).decode("utf-8").strip()
-        if not output: return []
-        return output.split('\n')
+        subprocess.check_call(
+            ["ping", "-n", "1", "-w", "1000", "github.com"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except:
+        return False
+
+
+def get_gh_username():
+    try:
+        return (
+            subprocess.check_output(
+                "gh api user --jq .login", shell=True, stderr=subprocess.DEVNULL
+            )
+            .decode("utf-8")
+            .strip()
+        )
+    except:
+        return os.environ.get("USERNAME", "Dev")
+
+
+def get_recent_projects(limit=3):
+    if not PROJECT_ROOT.exists():
+        return []
+    projects = []
+    try:
+        for item in PROJECT_ROOT.iterdir():
+            if item.is_dir() and (item / ".git").exists():
+                projects.append({"name": item.name, "time": item.stat().st_mtime})
+    except:
+        pass
+    projects.sort(key=lambda x: x["time"], reverse=True)
+    return projects[:limit]
+
+
+def get_gh_data(cmd):
+    """Runs a GH search command and returns lines"""
+    try:
+        # Use --limit to keep it fast, results are tab-separated by default in gh search
+        out = (
+            subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
+            .decode("utf-8")
+            .strip()
+        )
+        return out.split("\n") if out else []
     except:
         return []
 
-def clean_gh_line(line, is_pr=True):
-    """Parses raw GH output into something pretty"""
-    # Raw format is usually: repo/name  #123  Title...
-    parts = line.split('\t')
-    
-    if len(parts) < 3: return f"  {C_GRAY}•{RESET} {line}"
 
-    # Extract useful bits
-    repo = parts[0]
-    number = parts[1]
+def format_gh_line(line, icon):
+    """Parses 'repo/name  #number  title' format from gh search"""
+    # GH Search outputs: REPO    ID    TITLE    LABELS    UPDATED_AT
+    parts = line.split("\t")
+    if len(parts) < 3:
+        return f"  {C_GRAY}│{RESET}  {C_GRAY}• {line[:50]}{RESET}"
+
+    repo = parts[0].split("/")[-1]  # just the repo name
+    num = parts[1]
     title = parts[2]
-    
-    icon = ICON_PR if is_pr else ICON_BUG
-    return f"  {C_MAGENTA}{icon} {number}{RESET} {C_WHITE}{title[:50].ljust(50)}{RESET} {C_GRAY}({repo}){RESET}"
 
-def get_github_username():
-    """Retrieves the logged-in GitHub username from local config (instant)"""
-    try:
-        # Check local config first (fastest)
-        username = subprocess.check_output(
-            'gh config get -h github.com user', 
-            shell=True, stderr=subprocess.DEVNULL
-        ).decode("utf-8").strip()
-        
-        if username:
-            return username
-            
-        # Fallback to API if config is empty
-        username = subprocess.check_output(
-            'gh api user --jq .login', 
-            shell=True, stderr=subprocess.DEVNULL
-        ).decode("utf-8").strip()
-        
-        return username
-    except:
-        # Final fallback to Windows username if GH is not configured
-        return os.environ.get('USERNAME', 'User')
+    # Truncate title to keep UI clean
+    clean_title = (title[:40] + "..") if len(title) > 40 else title.ljust(40)
+
+    return f"  {C_GRAY}│{RESET}  {C_MAGENTA}{icon} {num.ljust(6)}{RESET} {C_WHITE}{clean_title}{RESET} {C_GRAY}({repo}){RESET}"
 
 
 # ==============================================================================
-# 3. LOGIC CONTROLLERS
+# 3. MAIN RENDERER
 # ==============================================================================
-def auto_adjust_terminal():
-    if not HAS_MANAGER: return
-
-    manager = TerminalManager()
-    hour = datetime.datetime.now().hour
-    
-    # NIGHT MODE (20:00 - 06:00): Darker, Retro effects ON
-    if hour >= 20 or hour <= 6:
-        manager.update_profile("PowerShell", opacity=85, experimental_retroTerminalEffect=True)
-        return "NIGHT"
-    # DAY MODE: Brighter, Sharp text
-    else:
-        manager.update_profile("PowerShell", opacity=95, experimental_retroTerminalEffect=False)
-        return "DAY"
-
 def show_dashboard():
-    # 1. Trigger Theme Update
-    mode = auto_adjust_terminal()
-    
-    # 2. Start Async GitHub Fetch
-    results = {'prs': [], 'issues': []}
-    
-    # We use 'view' or list with tab separation for easier parsing
+    # 1. Background Tasks
+    data = {"prs": [], "issues": [], "projects": [], "online": False, "handle": "..."}
+
+    # GLOBAL SEARCH: finds items authored by you or assigned to you across all repos
     pr_cmd = 'gh search prs --author "@me" --state open --limit 3'
-    issue_cmd = 'gh search issues --author "@me" --state open --limit 3'
-    
-    t1 = threading.Thread(target=lambda: results.update({'prs': get_gh_data(pr_cmd)}))
-    t2 = threading.Thread(target=lambda: results.update({'issues': get_gh_data(issue_cmd)}))
-    t1.start()
-    t2.start()
+    iss_cmd = 'gh search issues --assignee "@me" --state open --limit 3'
 
-    # 3. Calculate System Stats (While waiting)
-    total, used, free = shutil.disk_usage("C:/")
-    disk_percent = int((used / total) * 100)
-    
+    threads = [
+        threading.Thread(target=lambda: data.update({"online": check_connection()})),
+        threading.Thread(target=lambda: data.update({"handle": get_gh_username()})),
+        threading.Thread(
+            target=lambda: data.update({"projects": get_recent_projects()})
+        ),
+        threading.Thread(target=lambda: data.update({"prs": get_gh_data(pr_cmd)})),
+        threading.Thread(target=lambda: data.update({"issues": get_gh_data(iss_cmd)})),
+    ]
+    for t in threads:
+        t.start()
+
+    # 2. System Stats (Sync)
+    total_c, used_c, _ = shutil.disk_usage("C:/")
+    disk_c = int((used_c / total_c) * 100)
+    disk_e = 0
+    if Path("E:/").exists():
+        total_e, used_e, _ = shutil.disk_usage("E:/")
+        disk_e = int((used_e / total_e) * 100)
+
     now = datetime.datetime.now()
-    date_str = now.strftime("%A, %d %B")
+    date_str = now.strftime("%a, %d %b")
     time_str = now.strftime("%H:%M")
-    
-    # Greeting
-    if now.hour < 12: greeting = "Good Morning"
-    elif now.hour < 18: greeting = "Good Afternoon"
-    else: greeting = "Good Evening"
-    
-    github_user = get_github_username()
 
-    # ==========================================================================
-    # 4. RENDER UI
-    # ==========================================================================
-    print("") 
-    
-    # --- HEADER ---
-    print(f"  {C_GRAY}┌─{RESET} {C_CYAN}{ICON_OS} SYSTEM STATUS{RESET}")
-    print(f"  {C_GRAY}│{RESET} {C_WHITE}{greeting}, {C_MAGENTA}@{github_user}{RESET}") 
-    print(f"  {C_GRAY}│{RESET} {ICON_TIME} {date_str} {C_GRAY}|{RESET} {C_GOLD}{time_str}{RESET}")
-    
-    # --- DISK USAGE ---
-    print(f"  {C_GRAY}│{RESET} {ICON_DISK} C: {draw_bar(disk_percent)}")
-    
-    # Wait for threads
-    t1.join()
-    t2.join()
+    for t in threads:
+        t.join()
 
-    print(f"  {C_GRAY}│{RESET}")
-
-    # --- PULL REQUESTS ---
-    print(f"  {C_GRAY}├─{RESET} {C_GOLD}OPEN PULL REQUESTS{RESET}")
-    if results['prs']:
-        for line in results['prs']:
-            print(clean_gh_line(line, is_pr=True))
-    else:
-        print(f"  {C_GRAY}│  {C_GREEN}✓ All caught up! No open PRs.{RESET}")
-
-    print(f"  {C_GRAY}│{RESET}")
-
-    # --- ISSUES ---
-    print(f"  {C_GRAY}├─{RESET} {C_GOLD}PENDING ISSUES{RESET}")
-    if results['issues']:
-        for line in results['issues']:
-             print(clean_gh_line(line, is_pr=False))
-    else:
-        print(f"  {C_GRAY}│  {C_GREEN}✓ Clear. No assigned issues.{RESET}")
-
-    # --- FOOTER ---
-    # Draw a footer line
-    print(f"  {C_GRAY}└──────────────────────────────────────────────────────────{RESET}")
+    # 3. Render UI
     print("")
+    status_msg = (
+        f"{C_GREEN}{ICON_WIFI} ONLINE"
+        if data["online"]
+        else f"{C_RED}{ICON_PLUG} OFFLINE"
+    )
+
+    # HEADER
+    print(f"  {C_GRAY}┌─{RESET} {C_CYAN}{ICON_OS} {platform.system().upper()}{RESET}")
+    print(f"  {C_GRAY}│{RESET} Welcome, {C_MAGENTA}@{data['handle']}{RESET}")
+    print(
+        f"  {C_GRAY}│{RESET} {ICON_TIME} {date_str} {C_GRAY}|{RESET} {C_GOLD}{time_str}{RESET} {C_GRAY}|{RESET} {status_msg}{RESET}"
+    )
+    print(f"  {C_GRAY}│{RESET}")
+
+    # DISKS
+    print(f"  {C_GRAY}│{RESET} {ICON_DISK} C: {draw_bar(disk_c)} {C_GRAY}(Sys){RESET}")
+    if Path("E:/").exists():
+        print(
+            f"  {C_GRAY}│{RESET} {ICON_DISK} E: {draw_bar(disk_e)} {C_GRAY}(Data){RESET}"
+        )
+    print(f"  {C_GRAY}│{RESET}")
+
+    # PROJECTS
+    print(f"  {C_GRAY}├─{RESET} {C_GOLD}RECENT PROJECTS (E:){RESET}")
+    if data["projects"]:
+        for p in data["projects"]:
+            print(
+                f"  {C_GRAY}│{RESET}  {C_CYAN}{ICON_DIR} {p['name'].ljust(25)}{RESET} {C_GRAY}{get_relative_time(p['time'])}{RESET}"
+            )
+    else:
+        print(f"  {C_GRAY}│  {C_GRAY}No git repos found in {PROJECT_ROOT}{RESET}")
+    print(f"  {C_GRAY}│{RESET}")
+
+    # GITHUB
+    if data["online"]:
+        # Pull Requests
+        print(f"  {C_GRAY}├─{RESET} {C_GOLD}PULL REQUESTS{RESET}")
+        if data["prs"]:
+            for line in data["prs"]:
+                print(format_gh_line(line, ICON_PR))
+        else:
+            print(f"  {C_GRAY}│  {C_GREEN}✓ No open PRs{RESET}")
+
+        print(f"  {C_GRAY}│{RESET}")
+
+        # Issues
+        print(f"  {C_GRAY}├─{RESET} {C_GOLD}ISSUES{RESET}")
+        if data["issues"]:
+            for line in data["issues"]:
+                print(format_gh_line(line, ICON_BUG))
+        else:
+            # Fallback check: if no assigned issues, check if user is author
+            # (Sometimes people have issues they created but aren't assigned to)
+            author_issues = get_gh_data(
+                'gh search issues --author "@me" --state open --limit 3'
+            )
+            if author_issues:
+                for line in author_issues:
+                    print(format_gh_line(line, ICON_BUG))
+            else:
+                print(f"  {C_GRAY}│  {C_GREEN}✓ No pending issues{RESET}")
+    else:
+        print(f"  {C_GRAY}├─{RESET} {C_RED}GITHUB DISCONNECTED{RESET}")
+
+    print(
+        f"  {C_GRAY}└──────────────────────────────────────────────────────────{RESET}\n"
+    )
+
 
 if __name__ == "__main__":
     show_dashboard()
