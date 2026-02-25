@@ -254,7 +254,7 @@ require("lazy").setup({
             -- 1. Mason handles DOWNLOADING the servers
             mason.setup()
             mason_lsp.setup({
-                ensure_installed = { "clangd", "lua_ls", "basedpyright" },
+                ensure_installed = { "clangd", "lua_ls", "basedpyright", "ruff" },
                 automatic_installation = true,
             })
 
@@ -451,6 +451,9 @@ require("lazy").setup({
             })
             vim.lsp.enable('basedpyright')
 
+            vim.lsp.config('ruff', { capabilities = capabilities, })
+            vim.lsp.enable('ruff')
+
             -- ==========================================
 
             -- Smart Auto-Hover Logic
@@ -556,7 +559,8 @@ require("lazy").setup({
                     cpp = { "clang-format" },
                     hlsl = { "clang-format" },
                     glsl = { "clang-format" },
-                    python = { "black" }, -- Python Formatter
+                    -- Use Ruff for fixing (imports) and formatting (black-compatible style)
+                    python = { "ruff_fix", "ruff_format" },
                     javascript = { "prettier" },
                 },
                 format_on_save = { timeout_ms = 500, lsp_fallback = true },
@@ -703,10 +707,76 @@ require("lazy").setup({
     },
     {
         'stevearc/oil.nvim',
-        dependencies = { "nvim-tree/nvim-web-devicons" },
+        dependencies = {
+            "nvim-tree/nvim-web-devicons",
+            "refractalize/oil-git-status.nvim",
+        },
         config = function()
             local ok, oil = pcall(require, "oil")
-            if ok then oil.setup({ view_options = { show_hidden = true } }) end
+            if not ok then return end
+
+            -- 1. Setup Oil
+            oil.setup({
+                columns = {
+                    "icon",
+                    -- "permissions", -- (Optional)
+                    -- "size",        -- (Optional)
+                    -- "mtime",       -- (Optional)
+                },
+                -- CRITICAL: This is what the README requires.
+                -- We need space in the gutter for the git icons.
+                win_options = {
+                    signcolumn = "yes:2",
+                },
+                view_options = {
+                    show_hidden = true,
+                    is_hidden_file = function(name, bufnr)
+                        return vim.startswith(name, ".")
+                    end,
+                    is_always_hidden = function(name, bufnr)
+                        return name == ".." or name == ".git"
+                    end,
+                },
+                float = {
+                    padding = 2,
+                    max_width = 100,
+                    max_height = 0,
+                    border = "rounded",
+                    win_options = {
+                        winblend = 0,
+                    },
+                },
+            })
+
+            -- 2. Setup Git Status (AFTER Oil)
+            require("oil-git-status").setup({
+                show_ignored = true, -- Show '!!' for ignored files
+                symbols = {
+                    -- Symbols for the "Index" (Staged changes)
+                    index = {
+                        ["A"] = "✚", -- Added
+                        ["M"] = "", -- Modified
+                        ["D"] = "✖", -- Deleted
+                        ["R"] = "➜", -- Renamed
+                    },
+                    -- Symbols for the "Working Tree" (Unstaged changes)
+                    working_tree = {
+                        ["M"] = "", -- Modified
+                        ["?"] = "★", -- Untracked
+                        ["!"] = "", -- Ignored
+                        ["D"] = "✖", -- Deleted
+                    },
+                }
+            })
+
+            -- 3. Set Colors for the Icons
+            -- The plugin uses specific highlight groups. We link them to standard colors
+            -- so they aren't just white text.
+            vim.api.nvim_set_hl(0, "OilGitStatusIndexAdded", { link = "DiagnosticSignOk" })
+            vim.api.nvim_set_hl(0, "OilGitStatusIndexModified", { link = "DiagnosticSignWarn" })
+            vim.api.nvim_set_hl(0, "OilGitStatusWorkingTreeUntracked", { link = "DiagnosticSignInfo" })
+            vim.api.nvim_set_hl(0, "OilGitStatusWorkingTreeModified", { link = "DiagnosticSignWarn" })
+            vim.api.nvim_set_hl(0, "OilGitStatusWorkingTreeIgnored", { link = "Comment" })
         end,
         keys = { { '<leader>e', ':Oil<CR>', desc = 'File Explorer' } }
     },
