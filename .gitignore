@@ -25,6 +25,5 @@ scripts/
 bin/
 build/
 *.log
-*.txt
 *.wav
 sounds/*.wav
