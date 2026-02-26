@@ -202,6 +202,10 @@ def show_dashboard():
         disk_e = int(
             shutil.disk_usage("E:/").used / shutil.disk_usage("E:/").total * 100
         )
+    if Path("D:/").exists():
+        disk_d = int(
+            shutil.disk_usage("D:/").used / shutil.disk_usage("D:/").total * 100
+        )
 
     now = datetime.datetime.now()
     date_str = now.strftime("%a, %d %b")
@@ -248,6 +252,11 @@ def show_dashboard():
     if Path("E:/").exists():
         print(
             f"  {C_GRAY}│{RESET} {ICON_DISK} E: {draw_bar(disk_e)} {C_GRAY}(Data){RESET}"
+        )
+    print(f"  {C_GRAY}│{RESET}")
+    if Path("D:/").exists():
+        print(
+            f"  {C_GRAY}│{RESET} {ICON_DISK} D: {draw_bar(disk_d)} {C_GRAY}(Data){RESET}"
         )
     print(f"  {C_GRAY}│{RESET}")
 
