@@ -54,18 +54,18 @@ function sudo {
 
 
 # ==========================================================================
-# MASTER NERD-FONT PROMPT (Hardened for PS 5.1)
+# MASTER NERD-FONT PROMPT (Bulletproof Edition)
 # ==========================================================================
 function prompt {
+    # Capture status of the last command immediately
     $lastStatus = $?
     $timeStr = Get-Date -Format "HH:mm"
     
-    # 1. ANSI Color Definitions (256-color palette)
+    # 1. Colors
     $E = [char]27
     $Reset = "$E[0m"
     $Bold  = "$E[1m"
     
-    # Foreground Colors
     $DimGray   = "$E[38;5;240m"
     $MidGray   = "$E[38;5;244m"
     $Gold      = "$E[38;5;214m"
@@ -74,39 +74,95 @@ function prompt {
     $SoftRed   = "$E[38;5;203m"
     $MutedMag  = "$E[38;5;170m"
     
-    # Backgrounds
-    $BarBG     = "$E[48;5;235m" # Recessed dark bar
-    $TimeBG    = "$E[48;5;238m" # Slightly lighter for the time pill
+    $BarBG     = "$E[48;5;235m"
+    $TimeBG    = "$E[48;5;238m"
     
-    # 2. Path Logic
-    $fullPath = (Get-Location).Path
-    $drive = $fullPath.Substring(0, 2)
-    $restOfPath = $fullPath.Substring(2).Replace($env:USERPROFILE, "~")
-    if ($restOfPath -eq "") { $restOfPath = "\" }
+    # 2. Path Logic (Protected)
+    try {
+        $fullPath = (Get-Location).Path
+        $userProfile = $env:USERPROFILE
 
-    # 3. Git Status (Optimized)
-    $gitInfo = ""
-    $null = git rev-parse --is-inside-work-tree 2>$null
-    if ($LASTEXITCODE -eq 0) {
-        $branch = $(git branch --show-current 2>$null).Trim()
-        $dirty = if (git status --porcelain 2>$null) { " $SoftRed󱈸" } else { "" }
-        $gitInfo = " $MidGray $MutedMag$branch$dirty"
+        # Case-Insensitive Check for Home Directory
+        if ($fullPath.StartsWith($userProfile, [System.StringComparison]::OrdinalIgnoreCase)) {
+            # Use Substring based on profile length to handle casing differences safely
+            $relPath = $fullPath.Substring($userProfile.Length)
+            if ($relPath -eq "") { $relPath = "\" }
+            
+            $drive = "~"
+            $restOfPath = $relPath
+        }
+        else {
+            # Safely get drive letter (or first 2 chars)
+            if ($fullPath.Length -ge 2) {
+                $drive = $fullPath.Substring(0, 2)
+                $restOfPath = $fullPath.Substring(2)
+            } else {
+                # Fallback for root/weird paths
+                $drive = $fullPath
+                $restOfPath = ""
+            }
+            if ($restOfPath -eq "") { $restOfPath = "\" }
+        }
+    } catch {
+        # Fallback if path logic explodes
+        $drive = "FS"
+        $restOfPath = (Get-Location).Path
     }
 
-    # 4. Construct Line 1 (The Pill & Information Bar)
-    #  and  create the rounded container
-    $line1 = "`n$DimGray$TimeBG$Bold $timeStr $Reset$DimGray" # Time Pill
-    $line1 += " $Gold󰋊 $drive$Reset"                          # Drive
-    $line1 += " $DeepCyan󰉋 $restOfPath$Reset"                 # Path
-    $line1 += "$gitInfo$Reset"                                # Git
+    # 3. Git Status (Wrapped in Try/Catch to prevent crashes)
+    $gitInfo = ""
+    try {
+        # Fast check: Is this a git repo?
+        # We check specific git files OR fallback to rev-parse
+        if (Test-Path -Path .git -PathType Container -ErrorAction SilentlyContinue) {
+            $isGit = $true
+        } else {
+            # This captures stderr to null so it doesn't print "fatal:..."
+            $isGit = [bool](git rev-parse --is-inside-work-tree 2>$null)
+        }
+
+        if ($isGit) {
+            # A. Get Branch
+            $branchObj = git branch --show-current 2>$null
+            if ([string]::IsNullOrWhiteSpace($branchObj)) {
+                $shortSha = git rev-parse --short HEAD 2>$null
+                $branch = "HEAD:$shortSha"
+            } else {
+                $branch = $branchObj.Trim()
+            }
+
+            # B. Check for Heavy Repos (LLVM, Chromium, etc)
+            $isHeavyRepo = $fullPath -match "llvm-project" -or $fullPath -match "chromium"
+            
+            $dirty = ""
+            if (-not $isHeavyRepo) {
+                # Fast status check
+                $status = git status --porcelain --untracked-files=no 2>$null
+                if ($status) { $dirty = " $SoftRed󱈸" }
+            } else {
+                # Skip check for heavy repos
+                $dirty = " $DimGray󰈸?" 
+            }
+            
+            $gitInfo = " $MidGray $MutedMag$branch$dirty"
+        }
+    } catch {
+        # If Git is not installed or crashes, do nothing, just show empty git string
+        $gitInfo = ""
+    }
+
+    # 4. Draw Line 1
+    $line1 = "`n$DimGray$TimeBG$Bold $timeStr $Reset$DimGray" 
+    $line1 += " $Gold󰋊 $drive$Reset"                          
+    $line1 += " $DeepCyan󰉋 $restOfPath$Reset"                 
+    $line1 += "$gitInfo$Reset"                                
 
     Write-Host $line1
 
-    # 5. Construct Line 2 (The Input)
+    # 5. Draw Line 2
     $statusColor = if ($lastStatus) { $SoftGreen } else { $SoftRed }
     $statusIcon  = if ($lastStatus) { "󰄬" } else { "󰅙" }
     
-    # Draw the industrial elbow connector
     Write-Host "$DimGray└─$statusColor$statusIcon$Reset " -NoNewline
     
     return "$Bold❯$Reset "
