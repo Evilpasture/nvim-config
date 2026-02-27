@@ -1,4 +1,7 @@
-﻿# ==========================================================================
+﻿$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# ==========================================================================
 # RE-WRITTEN DASHBOARD (Python Caller)
 # ==========================================================================
 $PYTHON_DASH_PATH = "$HOME\AppData\Local\nvim\dashboard.py" # Update this path!
