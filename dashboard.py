@@ -197,10 +197,15 @@ def show_dashboard():
     mem = psutil.virtual_memory()
     cpu_temp = get_cpu_temp() if is_lhm_alive() else "OFF"
     disk_c = int(shutil.disk_usage("C:/").used / shutil.disk_usage("C:/").total * 100)
+    disk_d = 0
     disk_e = 0
     if Path("E:/").exists():
         disk_e = int(
             shutil.disk_usage("E:/").used / shutil.disk_usage("E:/").total * 100
+        )
+    if Path("D:/").exists():
+        disk_d = int(
+            shutil.disk_usage("D:/").used / shutil.disk_usage("D:/").total * 100
         )
 
     now = datetime.datetime.now()
@@ -248,6 +253,11 @@ def show_dashboard():
     if Path("E:/").exists():
         print(
             f"  {C_GRAY}│{RESET} {ICON_DISK} E: {draw_bar(disk_e)} {C_GRAY}(Data){RESET}"
+        )
+    print(f"  {C_GRAY}│{RESET}")
+    if Path("D:/").exists():
+        print(
+            f"  {C_GRAY}│{RESET} {ICON_DISK} D: {draw_bar(disk_d)} {C_GRAY}(Data){RESET}"
         )
     print(f"  {C_GRAY}│{RESET}")
 
