@@ -227,18 +227,38 @@ class TerminalManager:
         self.data = self._load_settings()
 
     def _find_settings_path(self):
+        # 1. PRIORITY: Check your known C:\Tools path first
+        custom_tools_path = Path(r"C:\Tools\WindowsTerminal\settings\settings.json")
+        if custom_tools_path.exists():
+            return custom_tools_path
+
+        # 2. Check for Portable Mode via 'where' (with fallback logic)
+        try:
+            wt_output = subprocess.check_output(["where", "wt"], text=True).splitlines()
+            for line in wt_output:
+                # Ignore the WindowsApps shim; look for a real drive path
+                if "WindowsApps" not in line:
+                    portable_path = Path(line).parent / "settings" / "settings.json"
+                    if portable_path.exists():
+                        return portable_path
+        except:
+            pass
+
+        # 3. Standard Fallbacks (Stable/Preview/Unpacked)
         local = Path(os.environ["LOCALAPPDATA"])
-        # Check Stable then Preview
         paths = [
+            local / "Microsoft/Windows Terminal/settings.json",
             local
             / "Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json",
             local
             / "Packages/Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe/LocalState/settings.json",
         ]
+
         for p in paths:
             if p.exists():
                 return p
-        raise FileNotFoundError("Could not find Windows Terminal settings.json")
+
+        raise FileNotFoundError("Could not find Windows Terminal settings.json.")
 
     def _load_settings(self):
         # Create backup
@@ -378,12 +398,17 @@ def main():
                 "font": {"face": "JetBrainsMono Nerd Font Mono", "size": 13},
                 "opacity": 90,
                 "useAcrylic": True,
-                "experimental.pixelShaderPath": str(shader_path).replace(
-                    "\\", "/"
-                ),  # JSON prefers forward slashes
-                "experimental.retroTerminalEffect": False,  # Turn off built-in retro to use our shader
+                "scrollbarState": "hidden",  # <--- Kill the scrollbar
+                "padding": "0",  # <--- Kill the internal gap
+                "experimental.pixelShaderPath": str(shader_path).replace("\\", "/"),
+                "experimental.retroTerminalEffect": False,
             },
         )
+
+        manager.data["alwaysShowTabs"] = False
+        manager.data["defaults"] = {
+            "scrollbarState": "hidden"
+        }  # Kill it for EVERY profiles
 
     except FileNotFoundError as e:
         print(f"❌ {e}")

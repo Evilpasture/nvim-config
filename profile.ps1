@@ -168,6 +168,39 @@ function prompt {
     return "$Bold❯$Reset "
 }
 
+# ==========================================================================
+# DYNAMIC LLVM FINDER (Clang / LLDB)
+# ==========================================================================
+function Find-LLVM {
+    $PotentialPaths = @(
+        "E:\LLVM\bin",
+        "D:\LLVM\bin",
+        "C:\Program Files\LLVM\bin",
+        "$env:LOCALAPPDATA\Programs\LLVM\bin",
+        "C:\msys64\mingw64\bin" # Fallback for MinGW/Clang environments
+    )
+
+    foreach ($Path in $PotentialPaths) {
+        if (Test-Path "$Path\clang.exe") {
+            return $Path
+        }
+    }
+    return $null
+}
+
+$LLVM_BIN = Find-LLVM
+
+if ($LLVM_BIN) {
+    # Only add to PATH if it isn't already there
+    if ($env:Path -notlike "*$LLVM_BIN*") {
+        $env:Path = "$LLVM_BIN;" + $env:Path
+    }
+    $env:CC = "$LLVM_BIN\clang.exe"
+    $env:CXX = "$LLVM_BIN\clang++.exe"
+} else {
+    Write-Host " [!] LLVM Toolchain not found. C23/Graphics builds may fail." -ForegroundColor Yellow
+}
+
 # Aliases
 Set-Alias v nvim
 function kill-clicker {Stop-Process -Name clicker}
