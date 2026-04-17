@@ -168,6 +168,11 @@ keymap.set('n', 'gp', ':Glow<CR>', { desc = 'Toggle Glow Markdown Preview' })
 -- Reset highlight when switching to Normal Mode
 keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR><Esc>')
 
+
+keymap.set('n', '<leader>cg', '<cmd>CMakeGenerate<cr>', { desc = 'CMake Generate' })
+keymap.set('n', '<leader>cb', '<cmd>CMakeBuild<cr>', { desc = 'CMake Build' })
+keymap.set('n', '<leader>cr', '<cmd>CMakeRun<cr>', { desc = 'CMake Run Target' })
+keymap.set('n', '<leader>ct', '<cmd>CMakeSelectTarget<cr>', { desc = 'Select CMake Target' })
 -- Smart Run Code (F5)
 keymap.set('n', '<F5>', function()
     vim.cmd("w") -- Save file
@@ -451,6 +456,22 @@ require("lazy").setup({
             vim.lsp.config('ruff', { capabilities = capabilities, })
             vim.lsp.enable('ruff')
         end
+    },
+
+    -- 1.5 Build Tools
+    {
+        "CivitasV/cmake-tools.nvim",
+        dependencies = { "nvim-lua/plenary.nvim", "akinsho/toggleterm.nvim" },
+        opts = {
+            cmake_build_directory = "build",                                  -- Matches your existing <F5> logic
+            cmake_generate_options = { "-DCMAKE_EXPORT_COMPILE_COMMANDS=1" }, -- Essential for clangd
+            cmake_terminal = {
+                name = "terminal",
+                container = "vsplit", -- Opens build output in a vertical split
+                direction = "vertical",
+                split_ratio = 0.3,
+            },
+        },
     },
 
     -- 2. Autocompletion
